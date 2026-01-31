@@ -47,3 +47,5 @@ You can pass credentials as parameters if you are automating this process (use w
 ## Disclaimer
 
 This is a community-created script and is not officially supported by Private Internet Access. Use at your own risk.
+
+**Note:** I am not a professional coder. This project is 100% **vibecoded with Gemini** — it works, but don't ask me how every line of the API calls works!
