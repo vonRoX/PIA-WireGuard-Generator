@@ -1,0 +1,14 @@
+# Generated WireGuard configs
+*.conf
+
+# Cached server list
+*.json
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+C:\Users\eugen\.gemini\tmp\
