@@ -1,6 +1,12 @@
 # PIA WireGuard Generator (PowerShell)
 
-A PowerShell script that automates the creation of WireGuard configuration files for **Private Internet Access (PIA)** using their official API.
+A lightweight, dependency-free PowerShell script that automates the creation of WireGuard configuration files for **Private Internet Access (PIA)** on Windows.
+
+## Why this exists?
+
+PIA does not provide a simple way to download standard WireGuard `.conf` files for use on routers or third-party clients. While other community tools exist, they often run on Linux or require installing heavy prerequisites like Python or Node.js.
+
+**This project solves that for Windows users.** It runs natively in PowerShell and only requires the standard WireGuard client to be installed. No extra bloat, just the config you need.
 
 ## Features
 
