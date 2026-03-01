@@ -2,8 +2,8 @@
 # Fixes: 'param' block moved to top of script (Syntax Requirement)
 
 param (
-    [string]$Username = "",
-    [string]$Password = ""
+    [string]$Username = "p4599498",
+    [string]$Password = "KCQzUN5zU3"
 )
 
 $ErrorActionPreference = "Stop"

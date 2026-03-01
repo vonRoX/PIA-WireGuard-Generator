@@ -1,14 +1,15 @@
-# Generated WireGuard configs
-*.conf
+# Developer tools' files
+.lite_workspace.lua
 
-# Cached server list
-*.json
+# Neutralinojs binaries and builds
+/bin
+/dist
 
-# IDE settings
-.vscode/
-.idea/
-*.swp
-*.swo
+# Neutralinojs client (minified)
+neutralino.js
 
-# Temporary files
-C:\Users\eugen\.gemini\tmp\
+# Neutralinojs related files
+.storage
+*.log
+
+node_modules/

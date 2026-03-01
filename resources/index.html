@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PIA WireGuard Generator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="app-container">
+
+    <!-- Step 1: Login Screen -->
+    <div id="login-view" class="view active">
+      <div class="logo">
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="50" fill="url(#paint0_linear)" />
+          <path d="M35 50L45 60L65 40" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+          <defs>
+            <linearGradient id="paint0_linear" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#2DD4BF" />
+              <stop offset="1" stop-color="#0EA5E9" />
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <h2>Authenticate with PIA</h2>
+      <p class="subtitle">Enter your Private Internet Access credentials.</p>
+
+      <form id="login-form">
+        <div class="input-group">
+          <label>Username</label>
+          <input type="text" id="username" placeholder="p1234567" required>
+        </div>
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="••••••••" required>
+        </div>
+        <button type="submit" id="login-btn" class="btn primary-btn">
+          <span class="btn-text">Log In</span>
+          <div class="spinner hidden"></div>
+        </button>
+      </form>
+      <div id="login-error" class="error-msg hidden"></div>
+    </div>
+
+    <!-- Step 2: Configuration Screen -->
+    <div id="config-view" class="view">
+      <div class="header">
+        <h2>Generate Configuration</h2>
+        <button id="logout-btn" class="btn text-btn">Logout</button>
+      </div>
+
+      <div class="card">
+        <div class="input-group">
+          <label>Select Server Region</label>
+          <select id="region-select" disabled>
+            <option value="">Loading regions...</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label>DNS Options</label>
+          <select id="dns-preset">
+            <option value="10.0.0.243" selected>PIA Streaming Optimized (10.0.0.243)</option>
+            <option value="10.0.0.242">PIA Standard (10.0.0.242)</option>
+            <option value="10.0.0.244">PIA MACE / Ad-block (10.0.0.244)</option>
+            <option value="10.0.0.241">PIA Streaming + MACE (10.0.0.241)</option>
+            <option value="custom">Custom DNS...</option>
+          </select>
+        </div>
+
+        <div class="input-group hidden" id="custom-dns-group">
+          <label>Custom DNS IP</label>
+          <input type="text" id="custom-dns" placeholder="1.1.1.1, 8.8.8.8" value="1.1.1.1">
+        </div>
+
+      </div>
+
+      <button id="generate-btn" class="btn primary-btn large-btn" disabled>
+        <span class="btn-text">Generate WireGuard Keys & Config</span>
+        <div class="spinner hidden"></div>
+      </button>
+      <div id="gen-error" class="error-msg hidden"></div>
+    </div>
+
+    <!-- Step 3: Success Screen -->
+    <div id="success-view" class="view">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+      </div>
+      <h2>Configuration Ready!</h2>
+      <p class="subtitle">Your keys were generated locally and successfully registered with the PIA server.</p>
+
+      <div class="actions">
+        <button id="save-btn" class="btn primary-btn large-btn">Save .conf File</button>
+        <button id="create-another-btn" class="btn secondary-btn">Create Another</button>
+      </div>
+      <div id="save-status" class="status-msg hidden"></div>
+    </div>
+
+  </div>
+
+  <script src="js/neutralino.js"></script>
+  <script src="js/tweetnacl.js"></script>
+  <script src="js/renderer.js"></script>
+</body>
+
+</html>

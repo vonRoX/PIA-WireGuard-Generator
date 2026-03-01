@@ -1,0 +1,25 @@
+{
+  "name": "pia-wireguard-generator",
+  "version": "1.0.0",
+  "description": "The default template for a Neutralinojs app. It's possible to use your favorite frontend framework by using [these steps](https://neutralino.js.org/docs/getting-started/using-frontend-libraries).",
+  "main": "resources/js/renderer.js",
+  "scripts": {
+    "start": "neu run",
+    "build": "neu build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vonRoX/PIA-WireGuard-Generator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/vonRoX/PIA-WireGuard-Generator/issues"
+  },
+  "homepage": "https://github.com/vonRoX/PIA-WireGuard-Generator#readme",
+  "devDependencies": {
+    "@neutralinojs/neu": "^11.7.0"
+  }
+}
