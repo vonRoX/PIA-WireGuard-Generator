@@ -1,6 +1,6 @@
 {
   "name": "pia-wireguard-generator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A lightweight, cross-platform PIA WireGuard configuration generator built with Neutralinojs.",
   "main": "resources/js/renderer.js",
   "scripts": {
