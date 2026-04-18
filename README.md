@@ -1,4 +1,4 @@
-# PIA WireGuard Config Generator
+# PIA WireGuard Config Generator `v1.1.0`
 
 Easily generate and register pure **WireGuard** configuration files (`.conf`) for **Private Internet Access (PIA)**. 
 
