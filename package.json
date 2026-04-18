@@ -1,7 +1,7 @@
 {
   "name": "pia-wireguard-generator",
   "version": "1.0.0",
-  "description": "The default template for a Neutralinojs app. It's possible to use your favorite frontend framework by using [these steps](https://neutralino.js.org/docs/getting-started/using-frontend-libraries).",
+  "description": "A lightweight, cross-platform PIA WireGuard configuration generator built with Neutralinojs.",
   "main": "resources/js/renderer.js",
   "scripts": {
     "start": "neu run",

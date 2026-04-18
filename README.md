@@ -21,7 +21,10 @@ PIA officially supports OpenVPN configuration file downloads, but requires you t
 
 ### Getting the App
 1. Go to the [Releases](../../releases) page (if available) to download the ready-to-use executable for Windows, macOS, or Linux.
-2. Launch the application.
+2. Launch the application. 
+
+> [!TIP]
+> **Zero Dependencies:** The executables are fully self-contained. You do **not** need to install WireGuard, Go, or any external libraries on your machine to generate your config. Just run the `.exe` (Windows) or binary (Linux/Mac) and you're set.
 
 ### Running it
 1. Enter your PIA `Username` (starts with 'p') and `Password`.
