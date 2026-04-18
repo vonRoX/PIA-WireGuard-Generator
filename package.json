@@ -5,7 +5,7 @@
   "main": "resources/js/renderer.js",
   "scripts": {
     "start": "neu run",
-    "build": "neu build"
+    "build": "neu build --release --embed-resources"
   },
   "repository": {
     "type": "git",
