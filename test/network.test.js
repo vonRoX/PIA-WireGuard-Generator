@@ -20,6 +20,13 @@ import { AppError, ErrorCode } from '../resources/js/core/errors.js';
 import { shellExec, startTlsServer, mintCertificate, hasOpenssl } from './helpers.js';
 
 const COMMON_NAME = 'berlin401.test-pia.example';
+
+/**
+ * Windows curl uses Schannel, which rejects a certificate authority publishing no
+ * revocation endpoint — true of the throwaway CA minted here, and true of PIA's
+ * real root, which is why the application sets the same flag on Windows.
+ */
+const SCHANNEL = { tolerateUnknownRevocation: process.platform === 'win32' };
 const skip = hasOpenssl() ? false : 'openssl is not on PATH, so no test certificate can be minted';
 
 const ADD_KEY_RESPONSE = {
@@ -66,7 +73,7 @@ describe('addKey over TLS', { skip }, () => {
 
   /** @param {{port: number, caPath: string}} target */
   function clientFor(target) {
-    const client = new PiaClient(new HttpClient(shellExec), () => target.caPath);
+    const client = new PiaClient(new HttpClient(shellExec, SCHANNEL), () => target.caPath);
     client.wireguardPort = target.port;
     return client;
   }
@@ -232,7 +239,7 @@ describe('bodies survive the trip through curl unchanged', { skip }, () => {
   ];
 
   test('every hostile password arrives byte-for-byte', async () => {
-    const http = new HttpClient(shellExec);
+    const http = new HttpClient(shellExec, SCHANNEL);
 
     for (const password of PAYLOADS) {
       received.length = 0;

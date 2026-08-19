@@ -26,6 +26,12 @@ export const CURL_COMMAND = 'curl -q --config -';
 /** Minimum curl release that understands `--connect-to`, which the pinning path needs. */
 export const MIN_CURL_VERSION = [7, 49, 0];
 
+/**
+ * Minimum curl release on Windows, where `--ssl-revoke-best-effort` is also
+ * required. See `tolerateUnknownRevocation` below.
+ */
+export const MIN_CURL_VERSION_SCHANNEL = [7, 70, 0];
+
 const DEFAULT_CONNECT_TIMEOUT_SECONDS = 15;
 const DEFAULT_MAX_TIME_SECONDS = 45;
 
@@ -81,6 +87,10 @@ export function quoteConfigValue(value) {
  *           certificate, as `host:port`
  * @property {number}   [connectTimeoutSeconds]
  * @property {number}   [maxTimeSeconds]
+ * @property {boolean}  [tolerateUnknownRevocation]
+ *           Accept a certificate whose revocation status cannot be determined
+ *           because no distribution point exists. Needed on Windows only — see
+ *           the note in `buildCurlConfig`.
  */
 
 /**
@@ -141,6 +151,21 @@ export function buildCurlConfig(request) {
 
   if (request.caCertPath) {
     lines.push(`cacert = ${quoteConfigValue(request.caCertPath)}`);
+  }
+
+  if (request.tolerateUnknownRevocation) {
+    // Windows curl uses Schannel, which checks revocation and treats "cannot
+    // determine" as failure. Private Internet Access's root publishes neither a
+    // CRL nor an OCSP responder — quite normal for a private CA — so every
+    // pinned request on Windows would otherwise die with
+    // `CERT_TRUST_REVOCATION_STATUS_UNKNOWN` and curl exit 60.
+    //
+    // `--ssl-revoke-best-effort` relaxes exactly that case: revocation data
+    // being *absent or unreachable* is tolerated, while a certificate that is
+    // actually revoked is still rejected, and the chain is still verified
+    // against the pinned CA. It is not `--ssl-no-revoke`, and it is emphatically
+    // not `--insecure`.
+    lines.push('ssl-revoke-best-effort');
   }
 
   if (request.connectTo) {

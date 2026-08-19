@@ -5,7 +5,10 @@
  * the constant string `curl -q --config -` plus a document on stdin.
  */
 
-import { buildCurlConfig, parseCurlOutput, parseCurlVersion, CURL_COMMAND, MIN_CURL_VERSION, isVersionAtLeast } from './curl.js';
+import {
+  buildCurlConfig, parseCurlOutput, parseCurlVersion,
+  CURL_COMMAND, MIN_CURL_VERSION, MIN_CURL_VERSION_SCHANNEL, isVersionAtLeast,
+} from './curl.js';
 import { AppError, ErrorCode, curlExitToError, httpStatusToError } from './errors.js';
 
 /**
@@ -23,9 +26,15 @@ import { AppError, ErrorCode, curlExitToError, httpStatusToError } from './error
  */
 
 export class HttpClient {
-  /** @param {ExecFn} exec */
-  constructor(exec) {
+  /**
+   * @param {ExecFn} exec
+   * @param {{tolerateUnknownRevocation?: boolean}} [options]
+   *        Set `tolerateUnknownRevocation` on Windows, whose Schannel backend
+   *        rejects a CA that publishes no revocation endpoint.
+   */
+  constructor(exec, options = {}) {
     this.exec = exec;
+    this.tolerateUnknownRevocation = Boolean(options.tolerateUnknownRevocation);
   }
 
   /**
@@ -36,7 +45,13 @@ export class HttpClient {
    * @throws {AppError} on transport failure, TLS failure or a non-2xx status
    */
   async send(request) {
-    const config = buildCurlConfig(request);
+    // Only the pinned requests need the Schannel accommodation; everything else
+    // is validated against the system trust store, which has revocation data.
+    const config = buildCurlConfig(
+      request.caCertPath && this.tolerateUnknownRevocation
+        ? { ...request, tolerateUnknownRevocation: true }
+        : request,
+    );
 
     let result;
     try {
@@ -109,10 +124,12 @@ export class HttpClient {
       });
     }
 
-    if (!isVersionAtLeast(version, MIN_CURL_VERSION)) {
+    const minimum = this.tolerateUnknownRevocation ? MIN_CURL_VERSION_SCHANNEL : MIN_CURL_VERSION;
+
+    if (!isVersionAtLeast(version, minimum)) {
       throw new AppError(
         ErrorCode.CURL_TOO_OLD,
-        `curl ${version.join('.')} is too old — ${MIN_CURL_VERSION.join('.')} or newer is required to verify ` +
+        `curl ${version.join('.')} is too old — ${minimum.join('.')} or newer is required to verify ` +
         "Private Internet Access's certificates. Please update curl.",
       );
     }

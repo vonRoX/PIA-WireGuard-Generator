@@ -28,6 +28,10 @@ A security and correctness release. Everything below came out of a review of v1.
   when enabled the token is stored with a recorded expiry and revalidated at startup.
 - **Removed the Google Fonts request made on every launch**, which disclosed the user's IP address
   and launch time to a third party in a tool whose stated purpose is privacy. The font is vendored.
+- On Windows, pinned requests set `--ssl-revoke-best-effort`. Windows curl uses Schannel, which
+  fails a certificate authority that publishes no revocation endpoint — which PIA's root does not —
+  so without this the app could not verify anything on Windows at all. Revocation data being absent
+  is tolerated; a revoked certificate is still rejected and the chain is still pinned.
 - Server-list entries are validated at the parse boundary: a common name must be a syntactically
   valid host name and an address a valid IPv4 address before either reaches URL construction.
 - Added a `Content-Security-Policy` of `default-src 'none'`, so remote content cannot be loaded even

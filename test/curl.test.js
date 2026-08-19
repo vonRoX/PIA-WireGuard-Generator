@@ -20,6 +20,7 @@ import {
   parseCurlVersion,
   isVersionAtLeast,
   CURL_COMMAND,
+  MIN_CURL_VERSION_SCHANNEL,
 } from '../resources/js/core/curl.js';
 import { HttpClient } from '../resources/js/core/http.js';
 import { PiaClient, TOKEN_ENDPOINT } from '../resources/js/core/pia.js';
@@ -139,6 +140,56 @@ describe('buildCurlConfig', () => {
     assert.throws(
       () => buildCurlConfig({ url: 'https://example.com/', query: [['pt"\ninsecure\nx', 'v']] }),
       AppError,
+    );
+  });
+});
+
+describe('the Windows revocation accommodation', () => {
+  test('is absent unless asked for', () => {
+    const config = buildCurlConfig({ url: 'https://example.com/', caCertPath: '/tmp/ca.pem' });
+    assert.doesNotMatch(config, /ssl-revoke-best-effort/);
+  });
+
+  test('relaxes only unknown revocation, never verification', () => {
+    const config = buildCurlConfig({
+      url: 'https://example.com/',
+      caCertPath: '/tmp/ca.pem',
+      tolerateUnknownRevocation: true,
+    });
+
+    assert.match(config, /^ssl-revoke-best-effort$/m);
+    // The distinction that matters: these would accept a revoked or unverifiable
+    // certificate, and must never appear.
+    assert.doesNotMatch(config, /ssl-no-revoke/);
+    assert.doesNotMatch(config, /insecure/);
+    assert.match(config, /^cacert = /m, 'the chain is still pinned');
+  });
+
+  test('is applied only to pinned requests, and only when configured', async () => {
+    const withFlag = recordingExec();
+    const client = new HttpClient(withFlag, { tolerateUnknownRevocation: true });
+
+    await client.send({ url: 'https://example.com/plain' });
+    await client.send({ url: 'https://example.com/pinned', caCertPath: '/tmp/ca.pem' });
+
+    assert.doesNotMatch(withFlag.calls[0].stdIn, /ssl-revoke-best-effort/,
+      'a request validated against the system store has revocation data available');
+    assert.match(withFlag.calls[1].stdIn, /ssl-revoke-best-effort/);
+  });
+
+  test('raises the required curl version, because the option needs 7.70', async () => {
+    const old = { exitCode: 0, stdOut: 'curl 7.68.0 (x86_64-pc-linux-gnu) libcurl/7.68.0', stdErr: '' };
+
+    // Fine everywhere else: 7.68 satisfies the --connect-to minimum.
+    await new HttpClient(async () => old).preflight();
+
+    await assert.rejects(
+      () => new HttpClient(async () => old, { tolerateUnknownRevocation: true }).preflight(),
+      (err) => {
+        assert.equal(err.code, ErrorCode.CURL_TOO_OLD);
+        assert.match(err.message, new RegExp(MIN_CURL_VERSION_SCHANNEL.join('\\.')));
+        return true;
+      },
     );
   });
 });

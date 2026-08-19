@@ -69,7 +69,11 @@ const el = {
 };
 
 const caCert = new CaCertFile();
-const http = new HttpClient(exec);
+
+// Windows curl speaks to Schannel, which will not accept a certificate authority
+// that publishes no revocation endpoint — which PIA's does not. See core/curl.js.
+const isWindows = typeof NL_OS === 'string' && NL_OS === 'Windows';
+const http = new HttpClient(exec, { tolerateUnknownRevocation: isWindows });
 const pia = new PiaClient(http, () => caCert.path);
 const prefs = new Prefs(storage);
 

@@ -85,6 +85,11 @@ completing the handshake against the server's certificate name — the same appr
 no configuration is written. Earlier versions of this tool passed `-k` here, which accepted any
 certificate at all.
 
+On Windows, where curl verifies through Schannel, pinned requests additionally pass
+`--ssl-revoke-best-effort`, because PIA's authority publishes no revocation endpoint for Schannel to
+consult. That tolerates revocation data being missing; it does not skip verification, and a revoked
+certificate is still rejected.
+
 **Your session token is not stored unless you ask.** "Stay signed in" is off by default. When it is
 off the token lives in memory and is gone when you quit. When it is on, it is stored with a recorded
 expiry and revalidated on the next launch. Signing out erases it.

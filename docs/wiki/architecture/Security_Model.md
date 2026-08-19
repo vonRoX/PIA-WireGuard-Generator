@@ -68,6 +68,20 @@ parsed, before either can be interpolated into the request URL or into curl's co
 `--connect-to` field — pinning already makes a tampered value fail the handshake, but the check
 belongs at the boundary rather than relying on that.
 
+### One platform caveat
+
+Windows curl uses Schannel, which performs revocation checking and treats "cannot determine" as
+failure. PIA's root publishes neither a CRL nor an OCSP responder — normal for a private CA — so
+every pinned request on Windows would otherwise fail with `CERT_TRUST_REVOCATION_STATUS_UNKNOWN`.
+
+The app therefore sets `--ssl-revoke-best-effort` on Windows, and only on the pinned requests. That
+option tolerates revocation data being *absent or unreachable*; a certificate that is actually
+revoked is still rejected, and the chain is still verified against the pinned authority. It is not
+`--ssl-no-revoke`, which would skip the check entirely, and it is not `--insecure`. Because the
+option requires curl 7.70, the startup check demands that version on Windows rather than 7.49.
+
+This was caught by the Windows CI job, not by reasoning — which is why that job exists.
+
 Enforced by `test/network.test.js` against a local TLS server with a per-run throwaway CA, including
 the negative case, and by `test/guards.test.js`, which fails if `-k` or `--insecure` appears anywhere
 in the sources.
