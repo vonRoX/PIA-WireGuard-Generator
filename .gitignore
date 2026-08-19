@@ -2,6 +2,7 @@
 /bin
 /dist
 resources/js/neutralino.js
+resources/js/neutralino.d.ts
 
 # Neutralinojs runtime state
 .storage
