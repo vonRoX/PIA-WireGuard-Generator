@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Branch pushes are covered by the pull_request trigger; listening to both
+  # ran the whole matrix twice for every push to an open PR.
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
