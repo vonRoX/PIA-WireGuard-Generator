@@ -139,9 +139,10 @@ that a certificate from the wrong authority is rejected.
              │
              └─▶ generate X25519 keypair (locally)
                         │
-                        └─▶ GET https://<cn>:1337/addKey  ▶ peer IP, server key, endpoint
-                              --cacert <PIA CA>            │
-                              --connect-to <cn>::<ip>:     └─▶ .conf written to disk
+                        └─▶ GET https://<cn>:1337/addKey   ▶ peer IP, server key, endpoint
+                              --cacert <PIA CA>             │
+                              --connect-to <cn>:1337:<ip>:1337
+                                                            └─▶ .conf written to disk
 ```
 
 The application is Neutralinojs, so a release binary is a few megabytes rather than a bundled

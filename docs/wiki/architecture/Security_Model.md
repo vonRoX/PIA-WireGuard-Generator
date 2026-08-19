@@ -53,7 +53,7 @@ asserted) and pinned:
 
 ```
 --cacert <the PIA CA>
---connect-to "<cn>::<ip>:"
+--connect-to "<cn>:<port>:<ip>:<port>"
 ```
 
 which connects to the server's address while validating the certificate against its common name —
