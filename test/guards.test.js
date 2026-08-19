@@ -10,7 +10,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve, dirname, extname } from 'node:path';
+import { join, resolve, dirname, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -37,7 +37,13 @@ function appSources() {
   return files;
 }
 
-const SOURCES = appSources().map((path) => ({ path, rel: path.slice(ROOT.length + 1), text: readFileSync(path, 'utf8') }));
+// Repo-relative and always forward-slashed, so assertions read the same on
+// Windows as they do everywhere else.
+const SOURCES = appSources().map((path) => ({
+  path,
+  rel: path.slice(ROOT.length + 1).split(sep).join('/'),
+  text: readFileSync(path, 'utf8'),
+}));
 
 describe('certificate verification is never switched off', () => {
   test('no source reaches for --insecure', () => {
