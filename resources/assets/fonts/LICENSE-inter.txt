@@ -1,0 +1,11 @@
+Inter Variable (latin subset)
+https://github.com/rsms/inter
+
+Copyright (c) 2016 The Inter Project Authors.
+"Inter" is a trademark of Rasmus Andersson.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at https://openfontlicense.org
+
+The file in this directory is the latin subset published by Google Fonts,
+vendored so that the application makes no network request at start-up.

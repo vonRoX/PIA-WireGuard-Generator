@@ -1,25 +1,45 @@
 {
   "name": "pia-wireguard-generator",
-  "version": "1.1.0",
-  "description": "A lightweight, cross-platform PIA WireGuard configuration generator built with Neutralinojs.",
-  "main": "resources/js/renderer.js",
+  "version": "2.0.0",
+  "description": "Generate and register standalone WireGuard configuration files for Private Internet Access, without installing their app.",
+  "type": "module",
+  "private": true,
   "scripts": {
-    "start": "neu run",
-    "build": "neu build --release --embed-resources"
+    "start": "neu update && neu run",
+    "build": "neu update && neu build --release --embed-resources && node scripts/verify-build.mjs",
+    "verify-build": "node scripts/verify-build.mjs",
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "test:e2e": "playwright test",
+    "screenshots": "node scripts/screenshots.mjs",
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vonRoX/PIA-WireGuard-Generator.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "keywords": [
+    "wireguard",
+    "vpn",
+    "private-internet-access",
+    "pia",
+    "config-generator",
+    "neutralinojs",
+    "desktop-app"
+  ],
+  "author": "vonRoX",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/vonRoX/PIA-WireGuard-Generator/issues"
   },
   "homepage": "https://github.com/vonRoX/PIA-WireGuard-Generator#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
-    "@neutralinojs/neu": "^11.7.0"
+    "@eslint/js": "^9.15.0",
+    "@neutralinojs/neu": "^11.7.0",
+    "@playwright/test": "^1.49.0",
+    "eslint": "^9.15.0",
+    "globals": "^15.12.0"
   }
 }

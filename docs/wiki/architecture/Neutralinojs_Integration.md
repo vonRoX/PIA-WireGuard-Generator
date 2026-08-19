@@ -3,28 +3,54 @@ title: Neutralinojs Integration
 aliases: [Neutralino, Wrapper]
 tags: [architecture, neutralino]
 created: "2026-04-18"
-updated: "2026-04-18"
+updated: "2026-08-19"
 sources: ["[[2026-04-18_project_overview]]"]
 status: active
 confidence: high
 ---
 # Neutralinojs Integration
 
-The PIA WireGuard Generator relies on Neutralinojs as a lightweight desktop framework. This architectural choice replaced Electron, reducing the overall application footprint.
+Neutralinojs provides the desktop shell. It uses the operating system's own webview rather than
+bundling a browser, which is why a release binary is a few megabytes instead of a hundred.
 
 ## Configuration
-The project is configured via `neutralino.config.json`. The configuration allows the web client to execute specific native capabilities via the `nativeAllowList`. This includes permissions for `app.*`, `os.*`, `storage.*`, and `filesystem.*`.
+`neutralino.config.json` defines a single `window` mode. The browser, cloud and chrome modes were
+removed: the application needs native APIs that those modes block, so offering them would only
+advertise something that cannot work.
 
-## Native OS Execution
-The application heavily utilizes `Neutralino.os.execCommand`. Standard web `fetch()` calls fail due to Cross-Origin Resource Sharing (CORS) blocks on Private Internet Access (PIA) APIs. By executing `curl` commands natively, the application bypasses these browser-level network restrictions. This mechanism is critical for both the [[Authentication_Flow]] and the [[WireGuard_Generation]] process.
+`nativeAllowList` enumerates the methods actually called rather than granting `os.*` and
+`filesystem.*` wholesale:
+
+```
+app.*  events.*  window.*  storage.*  clipboard.writeText  debug.log
+os.execCommand  os.getPath  os.showSaveDialog
+filesystem.getJoinedPath  filesystem.remove  filesystem.setPermissions  filesystem.writeFile
+```
+
+`logging.writeToLogFile` is off — a privacy tool should not leave a log next to its binary.
+
+## Process execution
+`Neutralino.os.execCommand` runs its argument through the platform shell. Every call is confined to
+`resources/js/platform/neutralino.js`, and the only command the application can run is the constant
+`curl -q --config -`, with the request supplied on standard input. [[Security_Model]] explains why.
 
 ## Storage
-The application uses the Neutralino storage API (`Neutralino.storage.setData` and `Neutralino.storage.getData`) to persist user state. This includes:
-- Authentication tokens
-- Usernames
-- Saved region preferences
-- Custom DNS settings
+`Neutralino.storage` holds preferences under a versioned schema (`resources/js/core/prefs.js`):
+username, chosen region id, pinned regions, DNS choice, and — only behind an explicit opt-in — the
+session token and its issue time. Reading a key that was never written throws in this API, which the
+adapter treats as "absent" rather than as an error.
+
+## Filesystem
+Saved configurations are written and then restricted to the owner via
+`filesystem.setPermissions`. Windows maps POSIX modes loosely and may refuse; the app reports that
+instead of assuming the file is protected.
+
+## Client library
+The framework serves its globals by prepending them to `js/neutralino.js` rather than injecting an
+inline script, so a strict `script-src 'self'` policy does not break the app. That file is generated
+by `neu update` and is not committed — which is why `npm run build` runs `neu update` first.
 
 ## External Connections
 - [[Frontend_Stack]]
+- [[Security_Model]]
 - [[WireGuard_Generation]]

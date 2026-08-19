@@ -5,111 +5,227 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PIA WireGuard Generator</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+
+  <!--
+    Nothing in this app should ever reach a third party. The policy makes that a
+    property of the runtime rather than a promise in a README: no remote scripts,
+    styles, fonts or connections are loadable at all.
+
+    'self' covers Neutralino's own globals, which the framework prepends to
+    js/neutralino.js when it serves it (server/router.cpp) rather than inlining
+    into this document.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'none';
+    script-src 'self';
+    style-src 'self';
+    font-src 'self';
+    img-src 'self' data:;
+    connect-src 'self';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none'">
+
+  <link rel="stylesheet" href="css/app.css">
 </head>
 
 <body>
-  <div class="app-container">
+  <div class="app">
 
-    <!-- Step 1: Login Screen -->
-    <div id="login-view" class="view active">
-      <div class="logo">
-        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="50" cy="50" r="50" fill="url(#paint0_linear)" />
-          <path d="M35 50L45 60L65 40" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+    <header class="app-header">
+      <div class="brand">
+        <svg class="brand__mark" viewBox="0 0 100 100" fill="none" aria-hidden="true"
+          xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="50" fill="url(#brandGradient)" />
+          <path d="M35 50L45 60L65 40" stroke="white" stroke-width="8" stroke-linecap="round"
+            stroke-linejoin="round" />
           <defs>
-            <linearGradient id="paint0_linear" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+            <linearGradient id="brandGradient" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
               <stop stop-color="#2DD4BF" />
               <stop offset="1" stop-color="#0EA5E9" />
             </linearGradient>
           </defs>
         </svg>
+        <span class="brand__name">PIA WireGuard Generator</span>
       </div>
-      <h2>Authenticate with PIA</h2>
-      <p class="subtitle">Enter your Private Internet Access credentials.</p>
 
-      <form id="login-form">
-        <div class="input-group">
-          <label>Username</label>
-          <input type="text" id="username" placeholder="p1234567" required>
+      <ol class="steps" id="steps" aria-label="Progress">
+        <li class="steps__item" data-step="login"><span class="steps__dot"></span>Sign in</li>
+        <li class="steps__item" data-step="config"><span class="steps__dot"></span>Configure</li>
+        <li class="steps__item" data-step="success"><span class="steps__dot"></span>Save</li>
+      </ol>
+    </header>
+
+    <main class="app-main">
+
+      <!-- Shown instead of everything else when the machine cannot support the app. -->
+      <section id="view-blocked" class="view" tabindex="-1" aria-labelledby="blocked-title">
+        <div class="hero hero--warn">
+          <svg class="hero__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
         </div>
-        <div class="input-group">
-          <label>Password</label>
-          <input type="password" id="password" placeholder="••••••••" required>
+        <h1 id="blocked-title">This machine is missing something</h1>
+        <p class="subtitle" id="blocked-message"></p>
+        <button type="button" id="blocked-retry" class="btn btn--primary">Check again</button>
+      </section>
+
+      <!-- Step 1 -->
+      <section id="view-login" class="view is-active" tabindex="-1" aria-labelledby="login-title">
+        <h1 id="login-title">Sign in to Private Internet Access</h1>
+        <p class="subtitle">Your credentials go straight to PIA over an encrypted connection, and nowhere else.</p>
+
+        <form id="login-form" novalidate>
+          <div class="field">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" placeholder="p1234567" required
+              autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="••••••••" required
+              autocomplete="current-password" spellcheck="false">
+          </div>
+
+          <label class="checkbox" for="stay-signed-in">
+            <input type="checkbox" id="stay-signed-in">
+            <span>
+              Stay signed in on this device
+              <small>Stores your PIA session token on this computer. Leave this off on a shared machine.</small>
+            </span>
+          </label>
+
+          <button type="submit" id="login-btn" class="btn btn--primary btn--lg">
+            <span class="btn__label">Sign in</span>
+            <span class="spinner" hidden aria-hidden="true"></span>
+          </button>
+        </form>
+
+        <div id="login-error" class="alert alert--error" role="alert" hidden>
+          <p class="alert__message"></p>
+          <details class="alert__details" hidden>
+            <summary>Technical details</summary>
+            <pre></pre>
+          </details>
         </div>
-        <button type="submit" id="login-btn" class="btn primary-btn">
-          <span class="btn-text">Log In</span>
-          <div class="spinner hidden"></div>
+      </section>
+
+      <!-- Step 2 -->
+      <section id="view-config" class="view" tabindex="-1" aria-labelledby="config-title">
+        <div class="view__header">
+          <div>
+            <h1 id="config-title">Choose a region</h1>
+            <p class="subtitle" id="signed-in-as"></p>
+          </div>
+          <button type="button" id="signout-btn" class="btn btn--ghost btn--sm">Sign out</button>
+        </div>
+
+        <div class="card">
+          <div class="field">
+            <label for="region-filter">Server region</label>
+            <div class="field__row">
+              <input type="search" id="region-filter" placeholder="Filter by country or city…" autocomplete="off"
+                spellcheck="false" aria-controls="region-select">
+              <button type="button" id="favourite-btn" class="btn btn--icon" aria-pressed="false" disabled
+                title="Pin the selected region to the top of the list">
+                <span class="star" aria-hidden="true">★</span>
+                <span class="sr-only">Pin selected region</span>
+              </button>
+            </div>
+            <select id="region-select" size="6" aria-describedby="region-hint">
+              <option value="" disabled selected>Loading regions…</option>
+            </select>
+            <p class="hint" id="region-hint">Pinned regions stay at the top. Only regions with a verifiable
+              WireGuard server are listed.</p>
+          </div>
+
+          <div class="field">
+            <label for="dns-preset">DNS resolver</label>
+            <select id="dns-preset"></select>
+            <p class="hint" id="dns-hint"></p>
+          </div>
+
+          <div class="field" id="custom-dns-field" hidden>
+            <label for="custom-dns">Custom DNS addresses</label>
+            <input type="text" id="custom-dns" placeholder="1.1.1.1, 9.9.9.9" spellcheck="false" autocomplete="off">
+            <p class="hint">Comma-separated IPv4 addresses. These queries leave the tunnel unencrypted unless your
+              resolver is inside it.</p>
+          </div>
+        </div>
+
+        <button type="button" id="generate-btn" class="btn btn--primary btn--lg" disabled>
+          <span class="btn__label">Generate keys &amp; configuration</span>
+          <span class="spinner" hidden aria-hidden="true"></span>
         </button>
-      </form>
-      <div id="login-error" class="error-msg hidden"></div>
-    </div>
 
-    <!-- Step 2: Configuration Screen -->
-    <div id="config-view" class="view">
-      <div class="header">
-        <h2>Generate Configuration</h2>
-        <button id="logout-btn" class="btn text-btn">Logout</button>
-      </div>
-
-      <div class="card">
-        <div class="input-group">
-          <label>Select Server Region</label>
-          <select id="region-select" disabled>
-            <option value="">Loading regions...</option>
-          </select>
+        <div id="config-error" class="alert alert--error" role="alert" hidden>
+          <p class="alert__message"></p>
+          <details class="alert__details" hidden>
+            <summary>Technical details</summary>
+            <pre></pre>
+          </details>
         </div>
 
-        <div class="input-group">
-          <label>DNS Options</label>
-          <select id="dns-preset">
-            <option value="10.0.0.243" selected>PIA Streaming Optimized (10.0.0.243)</option>
-            <option value="10.0.0.242">PIA Standard (10.0.0.242)</option>
-            <option value="10.0.0.244">PIA MACE / Ad-block (10.0.0.244)</option>
-            <option value="10.0.0.241">PIA Streaming + MACE (10.0.0.241)</option>
-            <option value="custom">Custom DNS...</option>
-          </select>
+        <div id="config-notice" class="alert alert--info" role="status" hidden>
+          <p class="alert__message"></p>
+        </div>
+      </section>
+
+      <!-- Step 3 -->
+      <section id="view-success" class="view" tabindex="-1" aria-labelledby="success-title">
+        <div class="view__header">
+          <div>
+            <h1 id="success-title">Your configuration is ready</h1>
+            <p class="subtitle" id="success-subtitle"></p>
+          </div>
+          <button type="button" id="another-btn" class="btn btn--ghost btn--sm">Generate another</button>
         </div>
 
-        <div class="input-group hidden" id="custom-dns-group">
-          <label>Custom DNS IP</label>
-          <input type="text" id="custom-dns" placeholder="1.1.1.1, 8.8.8.8" value="1.1.1.1">
+        <div class="card card--flush">
+          <div class="preview__toolbar">
+            <span class="preview__filename" id="preview-filename"></span>
+            <div class="preview__buttons">
+              <button type="button" id="reveal-btn" class="btn btn--sm btn--ghost" aria-pressed="false"
+                aria-controls="config-preview">Reveal private key</button>
+              <button type="button" id="copy-btn" class="btn btn--sm btn--ghost">Copy</button>
+              <button type="button" id="qr-btn" class="btn btn--sm btn--ghost" aria-pressed="false"
+                aria-controls="qr-panel">Show QR</button>
+            </div>
+          </div>
+          <pre id="config-preview" class="preview" tabindex="0" aria-label="Generated WireGuard configuration"></pre>
         </div>
 
-      </div>
+        <div id="qr-panel" class="qr" hidden>
+          <p class="alert alert--warn">
+            This QR code contains your private key. Anyone who photographs it can use your VPN tunnel.
+          </p>
+          <div id="qr-target" class="qr__target"></div>
+          <p class="hint">Scan it from the WireGuard app on your phone: <em>Add tunnel → Scan from QR code</em>.</p>
+        </div>
 
-      <button id="generate-btn" class="btn primary-btn large-btn" disabled>
-        <span class="btn-text">Generate WireGuard Keys & Config</span>
-        <div class="spinner hidden"></div>
-      </button>
-      <div id="gen-error" class="error-msg hidden"></div>
-    </div>
+        <button type="button" id="save-btn" class="btn btn--primary btn--lg">Save .conf file</button>
 
-    <!-- Step 3: Success Screen -->
-    <div id="success-view" class="view">
-      <div class="success-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-          stroke-linejoin="round">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-          <polyline points="22 4 12 14.01 9 11.01"></polyline>
-        </svg>
-      </div>
-      <h2>Configuration Ready!</h2>
-      <p class="subtitle">Your keys were generated locally and successfully registered with the PIA server.</p>
+        <div id="save-status" class="alert" role="status" hidden>
+          <p class="alert__message"></p>
+        </div>
+      </section>
 
-      <div class="actions">
-        <button id="save-btn" class="btn primary-btn large-btn">Save .conf File</button>
-        <button id="create-another-btn" class="btn secondary-btn">Create Another</button>
-      </div>
-      <div id="save-status" class="status-msg hidden"></div>
-    </div>
+    </main>
+
+    <footer class="app-footer">
+      <span>Keys are generated on this machine and never leave it, except the public key.</span>
+      <span class="app-footer__version" id="app-version"></span>
+    </footer>
 
   </div>
 
   <script src="js/neutralino.js"></script>
-  <script src="js/tweetnacl.js"></script>
-  <script src="js/renderer.js"></script>
+  <script src="js/vendor/tweetnacl.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 
 </html>
