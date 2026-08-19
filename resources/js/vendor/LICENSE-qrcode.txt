@@ -1,6 +1,7 @@
-MIT License
+QR Code Generator for JavaScript (qrcode-generator)
+https://github.com/kazuhikoarase/qrcode-generator
 
-Copyright (c) 2026 vonRoX
+Copyright (c) 2009 Kazuhiko Arase
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20,13 +21,4 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----
-
-This product bundles third-party software:
-
-  * tweetnacl-js  — MIT / public domain, see resources/js/vendor/LICENSE-tweetnacl.txt
-  * qrcode-generator — MIT (c) 2009 Kazuhiko Arase, see resources/js/vendor/LICENSE-qrcode.txt
-  * Inter — SIL Open Font License 1.1, (c) The Inter Project Authors,
-    see resources/assets/fonts/LICENSE-inter.txt
-  * Private Internet Access root certificate — redistributed unmodified from
-    https://github.com/pia-foss/manual-connections for certificate verification only.
+The word "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.

@@ -1,15 +1,21 @@
-# Developer tools' files
-.lite_workspace.lua
-
-# Neutralinojs binaries and builds
+# Neutralinojs binaries, builds and generated client
 /bin
 /dist
+resources/js/neutralino.js
 
-# Neutralinojs client (minified)
-neutralino.js
-
-# Neutralinojs related files
+# Neutralinojs runtime state
 .storage
 *.log
 
+# Generated WireGuard configurations — never commit one, it holds a private key
+*.conf
+
+# Test and tooling output
 node_modules/
+test-results/
+playwright-report/
+coverage/
+
+# Editors
+.lite_workspace.lua
+.DS_Store

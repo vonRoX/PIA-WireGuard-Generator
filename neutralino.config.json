@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
-  "applicationId": "js.neutralino.sample",
-  "version": "1.1.0",
+  "applicationId": "com.vonrox.piawireguardgenerator",
+  "version": "2.0.0",
   "defaultMode": "window",
   "port": 0,
   "documentRoot": "/resources/",
@@ -11,33 +11,30 @@
   "tokenSecurity": "one-time",
   "logging": {
     "enabled": true,
-    "writeToLogFile": true
+    "writeToLogFile": false
   },
   "nativeAllowList": [
     "app.*",
-    "os.*",
+    "events.*",
+    "window.*",
     "storage.*",
-    "filesystem.*"
+    "clipboard.writeText",
+    "debug.log",
+    "os.execCommand",
+    "os.getPath",
+    "os.showSaveDialog",
+    "filesystem.getJoinedPath",
+    "filesystem.remove",
+    "filesystem.setPermissions",
+    "filesystem.writeFile"
   ],
-  "globalVariables": {
-    "TEST1": "Hello",
-    "TEST2": [
-      2,
-      4,
-      5
-    ],
-    "TEST3": {
-      "value1": 10,
-      "value2": {}
-    }
-  },
   "modes": {
     "window": {
       "title": "PIA WireGuard Generator",
-      "width": 800,
-      "height": 700,
-      "minWidth": 540,
-      "minHeight": 650,
+      "width": 820,
+      "height": 760,
+      "minWidth": 480,
+      "minHeight": 620,
       "center": true,
       "fullScreen": false,
       "alwaysOnTop": false,
@@ -48,29 +45,6 @@
       "hidden": false,
       "resizable": true,
       "exitProcessOnClose": true
-    },
-    "browser": {
-      "globalVariables": {
-        "TEST": "Test value browser"
-      },
-      "nativeBlockList": [
-        "filesystem.*"
-      ]
-    },
-    "cloud": {
-      "url": "/resources/#cloud",
-      "nativeAllowList": [
-        "app.*"
-      ]
-    },
-    "chrome": {
-      "width": 800,
-      "height": 500,
-      "args": "--user-agent=\"Neutralinojs chrome mode\"",
-      "nativeBlockList": [
-        "filesystem.*",
-        "os.*"
-      ]
     }
   },
   "cli": {
