@@ -6,8 +6,8 @@
  */
 
 import { AppError, ErrorCode } from './errors.js';
-import { extractServerListJson, toRegions, wireGuardPort } from './serverlist.js';
-import { validateAddKeyResponse } from './wireguard.js';
+import { extractServerListJson, toRegions, wireGuardPort, isHostname } from './serverlist.js';
+import { validateAddKeyResponse, isIpv4 } from './wireguard.js';
 
 export const TOKEN_ENDPOINT = 'https://www.privateinternetaccess.com/api/client/v2/token';
 export const SERVER_LIST_ENDPOINT = 'https://serverlist.piaservers.net/vpninfo/servers/v6';
@@ -107,7 +107,7 @@ export class PiaClient {
     if (!token) {
       throw new AppError(ErrorCode.AUTH, 'Your session has expired. Please sign in again.');
     }
-    if (!server || !server.cn || !server.ip) {
+    if (!server || !isHostname(server.cn) || !isIpv4(server.ip)) {
       throw new AppError(
         ErrorCode.PROTOCOL,
         'That server did not publish the certificate name needed to verify the connection, so it was not used. ' +

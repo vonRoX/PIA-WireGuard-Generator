@@ -9,6 +9,7 @@
  */
 
 import { AppError, ErrorCode } from './errors.js';
+import { isIpv4 } from './wireguard.js';
 
 /**
  * @typedef {object} WireGuardServer
@@ -148,9 +149,29 @@ export function findRegionById(regions, id) {
   return regions.find((region) => region.id === id);
 }
 
+/**
+ * A syntactically valid DNS host name, and nothing else.
+ *
+ * The common name goes on to be interpolated into the request URL and into
+ * curl's `--connect-to` field, both of which have structure that a stray `@`,
+ * `/` or `:` would change. Certificate pinning means a tampered value fails the
+ * handshake rather than leaking anything — but validating at the boundary is
+ * where this belongs, so a malformed entry never reaches URL construction.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isHostname(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 253) return false;
+  if (value.startsWith('.') || value.endsWith('.')) return false;
+
+  return value.split('.').every((label) =>
+    label.length > 0 && label.length <= 63 && /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label));
+}
+
 function usableServers(region) {
   const servers = region.servers && Array.isArray(region.servers.wg) ? region.servers.wg : [];
   return servers
-    .filter((server) => server && typeof server.ip === 'string' && typeof server.cn === 'string' && server.cn !== '')
+    .filter((server) => server && isIpv4(server.ip) && isHostname(server.cn))
     .map((server) => ({ ip: server.ip, cn: server.cn }));
 }

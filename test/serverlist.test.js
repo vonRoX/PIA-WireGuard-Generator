@@ -7,6 +7,7 @@ import {
   pickServer,
   findRegionById,
   wireGuardPort,
+  isHostname,
 } from '../resources/js/core/serverlist.js';
 import { AppError, ErrorCode } from '../resources/js/core/errors.js';
 import { serverListPayload, region } from './helpers.js';
@@ -107,6 +108,57 @@ describe('toRegions', () => {
         return true;
       },
     );
+  });
+});
+
+describe('server entries are validated before they can reach a URL', () => {
+  test('isHostname accepts real names and rejects anything with structure in it', () => {
+    for (const good of ['berlin401', 'de-berlin-401.privacy.network', 'a', 'x1.y2.z3']) {
+      assert.ok(isHostname(good), good);
+    }
+    // Each of these would change the meaning of `https://<cn>:1337/addKey`
+    // or of curl's colon-separated --connect-to field.
+    for (const bad of [
+      'evil.com/path', 'user@evil.com', 'host:1337', 'a b', '-leading', 'trailing-',
+      '', '.', 'a..b', '.leading', 'trailing.', 'a'.repeat(64), 'x'.repeat(254),
+      'host\nnewline', 'host"quote', null, undefined, 42, {},
+    ]) {
+      assert.equal(isHostname(bad), false, JSON.stringify(bad));
+    }
+  });
+
+  test('a region whose server has a malformed common name is dropped', () => {
+    assert.throws(() => toRegions({
+      regions: [region({ servers: { wg: [{ ip: '1.2.3.4', cn: 'evil.com/x' }] } })],
+    }), (err) => {
+      assert.equal(err.code, ErrorCode.NO_SERVERS);
+      return true;
+    });
+  });
+
+  test('a region whose server address is not an IPv4 address is dropped', () => {
+    assert.throws(() => toRegions({
+      regions: [region({ servers: { wg: [{ ip: 'not-an-ip', cn: 'berlin401' }] } })],
+    }), (err) => {
+      assert.equal(err.code, ErrorCode.NO_SERVERS);
+      return true;
+    });
+  });
+
+  test('a well-formed entry alongside malformed ones survives', () => {
+    const [only] = toRegions({
+      regions: [region({
+        servers: {
+          wg: [
+            { ip: '1.2.3.4', cn: 'a@b' },
+            { ip: '999.1.1.1', cn: 'ok401' },
+            { ip: '5.6.7.8', cn: 'good401.privacy.network' },
+          ],
+        },
+      })],
+    });
+
+    assert.deepEqual(only.servers, [{ ip: '5.6.7.8', cn: 'good401.privacy.network' }]);
   });
 });
 

@@ -62,7 +62,11 @@ into the binary and `--cacert` needs a real path, the certificate is written to 
 temporary file at startup and removed on exit. The name is randomised so another local user cannot
 pre-place a file at a predictable path and substitute their own authority.
 
-A server entry without a common name is refused rather than contacted unverified.
+A server entry without a common name is refused rather than contacted unverified. The common name
+and address are also validated as a host name and an IPv4 address at the point the server list is
+parsed, before either can be interpolated into the request URL or into curl's colon-separated
+`--connect-to` field — pinning already makes a tampered value fail the handshake, but the check
+belongs at the boundary rather than relying on that.
 
 Enforced by `test/network.test.js` against a local TLS server with a per-run throwaway CA, including
 the negative case, and by `test/guards.test.js`, which fails if `-k` or `--insecure` appears anywhere
