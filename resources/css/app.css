@@ -42,7 +42,7 @@
   --radius-sm: 7px;
   --shadow: 0 10px 30px rgba(2, 6, 23, 0.55);
 
-  --step: 1.5rem;
+  --step: 1.35rem;
   color-scheme: dark;
 }
 
@@ -177,6 +177,16 @@ body {
 .view.is-active {
   display: flex;
   animation: rise 0.22s ease-out;
+}
+
+/*
+ * Children keep their natural height. Without this the column shrinks them
+ * when it overflows — which silently collapsed the configuration preview to
+ * nothing as soon as the QR panel was opened, since its card clips overflow.
+ * .app-main scrolls instead.
+ */
+.view > * {
+  flex: none;
 }
 
 .view:focus {

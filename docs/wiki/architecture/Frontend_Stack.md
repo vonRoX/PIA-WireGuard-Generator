@@ -1,31 +1,58 @@
 ---
 title: Frontend Stack
-aliases: [Frontend, UI]
+aliases: [UI, Frontend]
 tags: [architecture, frontend]
 created: "2026-04-18"
-updated: "2026-04-18"
+updated: "2026-08-19"
 sources: ["[[2026-04-18_project_overview]]"]
 status: active
 confidence: high
 ---
 # Frontend Stack
 
-The PIA WireGuard Generator uses a pure vanilla web stack for its user interface. It avoids heavy JavaScript frameworks in favor of direct DOM manipulation.
+Vanilla ES modules, no framework and no build step. The source that ships is the source in the
+repository.
 
-## Core Technologies
-- **HTML**: `index.html` structure defining the three main views (login, configuration, success).
-- **CSS**: `style.css` uses CSS variables for a dark mode palette similar to Tailwind CSS. The design language incorporates a modern, dark Slate/Sky aesthetic.
-- **JavaScript**: `renderer.js` handles state transitions, API integrations, and event listeners.
+## Layout
+```
+resources/
+  index.html            markup, and the Content-Security-Policy
+  css/app.css           one stylesheet; the Inter font is vendored alongside it
+  js/
+    app.js              DOM wiring only
+    core/               decisions: curl, http, pia, serverlist, wireguard, dns, prefs, errors
+    platform/           every native call, behind one adapter
+    vendor/             tweetnacl, qrcode-generator, and the generated Neutralino client
+```
 
-## View Management
-The UI operates as a Single Page Application (SPA). The application defines three distinct `.view` sections. The active view is controlled by toggling the `.active` CSS class.
-1. **Login View**: Captures credentials.
-2. **Config View**: Selects regions and DNS.
-3. **Success View**: Offers the `.conf` save dialog.
+Modules under `core/` touch neither the DOM nor any Neutralino global; they take what they need
+through injection. That is what allows the same files to be exercised by Node and by a headless
+browser without the desktop runtime, and it keeps the untested surface down to `app.js`.
 
-## Interaction with Backend
-The frontend JavaScript communicates directly with the [[Neutralinojs_Integration]] layer to persist data and execute curl commands. It orchestrates the entire [[WireGuard_Generation]] sequence based on user input.
+## Views
+Four sections in one document — sign in, configure, result, and a blocking screen for a machine that
+cannot run the app — switched by a class. A stepper in the header tracks progress.
+
+Every asynchronous action has a real state: a busy button with `aria-busy`, an error region with
+`role="alert"` carrying a sentence a person can act on plus an optional technical detail, and an
+empty state where a list can come back empty. Version 1 had a "Loading regions…" placeholder that
+could never resolve, and a Generate button that could be enabled with nothing selected; both are
+gone, and there are browser tests for both.
+
+## Presentation
+A dark palette defined as custom properties. Interactive controls have visible focus rings, the
+region list is a keyboard-navigable listbox with a text filter, and `prefers-reduced-motion` is
+honoured.
+
+The generated configuration is displayed with the private key masked until revealed, and can be
+copied or turned into a QR code — with a warning, since that image is the key.
+
+## Rendering rules
+Values from the network reach the DOM through `textContent` and `createElement`; `innerHTML` is
+forbidden by lint. The Content-Security-Policy (`default-src 'none'`) means no remote script, style,
+font or image can load, and no `eval`.
 
 ## External Connections
 - [[Neutralinojs_Integration]]
+- [[Security_Model]]
 - [[Authentication_Flow]]
