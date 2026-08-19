@@ -31,6 +31,7 @@ export default [
         NL_CVERSION: 'readonly',
         NL_MODE: 'readonly',
         NL_OS: 'readonly',
+        NL_PATH: 'readonly',
         NL_PORT: 'readonly',
         NL_TOKEN: 'readonly',
         NL_VERSION: 'readonly',

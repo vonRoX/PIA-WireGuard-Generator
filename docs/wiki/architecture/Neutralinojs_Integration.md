@@ -40,6 +40,12 @@ username, chosen region id, pinned regions, DNS choice, and — only behind an e
 session token and its issue time. Reading a key that was never written throws in this API, which the
 adapter treats as "absent" rather than as an error.
 
+The framework writes these as `<NL_PATH>/.storage/<key>.neustorage` — beside the executable, not in a
+per-user application directory — with default permissions of `0644` in a `0755` directory. Since one
+of those files can be a bearer token, the adapter restricts the directory to its owner on the first
+write. Two consequences worth knowing: the app must live somewhere writable, and deleting that folder
+resets it completely.
+
 ## Filesystem
 Saved configurations are written and then restricted to the owner via
 `filesystem.setPermissions`. Windows maps POSIX modes loosely and may refuse; the app reports that

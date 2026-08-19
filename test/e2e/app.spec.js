@@ -112,6 +112,28 @@ test.describe('staying signed in', () => {
     expect(Number(stored.authTokenIssuedAt)).toBeGreaterThan(0);
   });
 
+  test('the storage directory is closed to other local users', async ({ page, boot }) => {
+    // Neutralino writes <app dir>/.storage/<key>.neustorage at 0644 in a 0755
+    // directory. One of those files is a bearer token once this box is ticked.
+    await boot();
+    await page.locator('#stay-signed-in').check();
+    await signIn(page);
+
+    const permissions = await page.evaluate(() => window.__CALLS__.permissions);
+    const storageDir = permissions.find((call) => call.path.endsWith('.storage'));
+
+    expect(storageDir, 'the storage directory was never restricted').toBeTruthy();
+    expect(storageDir.mode).toBe('REPLACE');
+    expect(storageDir.permissions).toMatchObject({
+      ownerRead: true,
+      ownerWrite: true,
+      ownerExec: true, // a directory needs search permission for its owner
+      groupRead: false,
+      othersRead: false,
+      othersExec: false,
+    });
+  });
+
   test('a token left on disk by v1 is deleted, with an explanation', async ({ page, boot }) => {
     await boot({ storage: { authToken: 'v1-plaintext-token', username: 'p1234567', selectedRegionIndex: '87' } });
 
