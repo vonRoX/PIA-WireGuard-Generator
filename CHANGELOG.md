@@ -22,6 +22,10 @@ A security and correctness release. Everything below came out of a review of v1.
   aborts the request; there is no fallback.
 - **Credentials no longer appear in process arguments.** The password and token were passed on the
   curl command line, visible to any local user through `ps` or `/proc`.
+- **The preferences store is restricted to your account.** Neutralino writes
+  `<app folder>/.storage/*.neustorage` at `0644` inside a `0755` directory; with "Stay signed in"
+  enabled one of those files is a bearer token, so every local user could read it. The app now
+  restricts that directory the first time it writes.
 - **Saved configurations are written owner-only** (`0600`) instead of with default permissions. The
   file contains a private key.
 - **The session token is no longer stored unless requested.** "Stay signed in" is off by default;

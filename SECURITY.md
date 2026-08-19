@@ -28,7 +28,9 @@ everything after `PrivateKey =`.
   It is never written to disk, never placed on a command line, and is cleared from the window after
   sign-in.
 - **Session token** — kept in memory. Written to local storage only if you tick "Stay signed in",
-  which is off by default, and then with a recorded expiry. Signing out deletes it.
+  which is off by default, and then with a recorded expiry. Signing out deletes it. That storage is
+  a `.storage` folder beside the executable; the app restricts it to your account (`0700`) the first
+  time it writes, because the framework's default would leave it readable by every local user.
 - **Private key** — generated on your machine and never transmitted. Only the corresponding public
   key is sent to PIA, which is what makes the tunnel work. Saved configurations are written with
   owner-only permissions.

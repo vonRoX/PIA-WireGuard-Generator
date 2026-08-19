@@ -48,23 +48,78 @@ The private key never leaves the computer you ran it on.
 
 </div>
 
-## Using it
+## Running it
 
-1. Download the build for your platform from [Releases](../../releases), or
-   [build it yourself](#building-from-source).
-2. Sign in with your PIA username (it starts with `p`) and password.
-3. Pick a region and a DNS resolver.
-4. **Generate**, then **Save .conf file** — or scan the QR code from your phone.
-5. Import the file into your router or client.
+Download **one file** for your platform from [Releases](../../releases) — each is 2–4 MB, there is no
+installer, and nothing is written outside the folder you put it in. There is no `.app` bundle, `.msi`
+or `.deb`: it is a single executable.
+
+<details open>
+<summary><b>Windows</b> — <code>pia-wireguard-generator-win_x64.exe</code></summary>
+
+Double-click it.
+
+Windows SmartScreen will warn that the publisher is unknown, because the binary is not code-signed —
+signing certificates cost money this project does not have. Choose **More info → Run anyway**, or
+verify the SHA-256 against `SHA256SUMS` on the release first:
+
+```powershell
+Get-FileHash .\pia-wireguard-generator-win_x64.exe -Algorithm SHA256
+```
+
+Requires the WebView2 runtime, which Windows 11 includes and Windows 10 gets with Microsoft Edge —
+in practice it is already there.
+</details>
+
+<details>
+<summary><b>macOS</b> — <code>pia-wireguard-generator-mac_universal</code> (Intel and Apple Silicon)</summary>
+
+It is a plain binary rather than an app bundle, so it needs the executable bit, and macOS will
+quarantine anything downloaded from the internet that is not notarized:
+
+```bash
+chmod +x pia-wireguard-generator-mac_universal
+xattr -d com.apple.quarantine pia-wireguard-generator-mac_universal
+./pia-wireguard-generator-mac_universal
+```
+
+Without the `xattr` line you get *"cannot be opened because the developer cannot be verified"*.
+Nothing else is needed — macOS provides the webview and curl.
+</details>
+
+<details>
+<summary><b>Linux</b> — <code>pia-wireguard-generator-linux_x64</code> (also arm64, armhf)</summary>
+
+```bash
+chmod +x pia-wireguard-generator-linux_x64
+./pia-wireguard-generator-linux_x64
+```
+
+Needs a GTK webview, which most desktop installs already have. If the app exits telling you so:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-0     # Debian/Ubuntu — or libwebkit2gtk-4.0-37 on older releases
+sudo dnf install webkit2gtk4.1           # Fedora
+sudo pacman -S webkit2gtk-4.1            # Arch
+```
+</details>
+
+Then: sign in with your PIA username (it starts with `p`), pick a region and a DNS resolver, hit
+**Generate**, and either **Save .conf file** or scan the QR code from the WireGuard app on your
+phone. Import the file into your router or client and you are done.
 
 > [!TIP]
 > `PersistentKeepalive = 25` is already set, which is what you want behind NAT. If your client
 > expects the interface address without a prefix, drop the `/32`.
 
+> [!NOTE]
+> Preferences live in a `.storage` folder created next to the executable, so keep it somewhere you
+> can write — your home directory or a USB stick is fine, `C:\Program Files` is not. Deleting that
+> folder resets the app completely.
+
 > [!IMPORTANT]
-> The app needs **curl**, which Windows 10+, macOS, and most Linux distributions already ship. If it
-> is missing, the app says so on startup instead of failing later. On a minimal container you may
-> need to install it.
+> The app uses **curl** for every network request. Windows 10 1803+, macOS, and most Linux
+> distributions ship it. If it is missing the app tells you on startup rather than failing later.
 
 ## Security
 

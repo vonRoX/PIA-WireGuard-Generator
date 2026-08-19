@@ -15,6 +15,7 @@
 var NL_APPVERSION = '2.0.0';
 var NL_OS = 'Linux';
 var NL_MODE = 'window';
+var NL_PATH = '/opt/pia-wireguard-generator';
 
 (function initialiseStub() {
   const fixtures = window.__FIXTURES__ || {};

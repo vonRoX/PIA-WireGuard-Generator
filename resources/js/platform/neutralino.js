@@ -8,6 +8,23 @@
 import { AppError, ErrorCode } from '../core/errors.js';
 import { PIA_CA_PEM } from '../core/pia-ca.js';
 
+/** 0700 — a directory only its owner may enter. */
+const OWNER_ONLY_DIRECTORY = Object.freeze({
+  all: false,
+  ownerAll: true,
+  ownerRead: true,
+  ownerWrite: true,
+  ownerExec: true,
+  groupAll: false,
+  groupRead: false,
+  groupWrite: false,
+  groupExec: false,
+  othersAll: false,
+  othersRead: false,
+  othersWrite: false,
+  othersExec: false,
+});
+
 /** 0600 — owner read/write, nobody else. */
 const OWNER_ONLY = Object.freeze({
   all: false,
@@ -65,6 +82,7 @@ export const storage = {
     } catch (err) {
       throw new AppError(ErrorCode.STORAGE, 'Could not save your preferences.', { cause: err });
     }
+    await ensureStorageIsPrivate();
   },
   async removeItem(key) {
     try {
@@ -74,6 +92,34 @@ export const storage = {
     }
   },
 };
+
+/**
+ * Keep Neutralino's key/value store readable only by its owner.
+ *
+ * The framework writes `<app directory>/.storage/<key>.neustorage` with default
+ * permissions — 0644 on a typical system, and the directory 0755. When the user
+ * has opted into "Stay signed in", one of those files is a bearer token for
+ * their VPN account, so on a shared machine every other local account could read
+ * it. Restricting the directory denies the whole tree in one call, and matches
+ * the treatment the saved configuration already gets.
+ *
+ * Done once per session, after the first write, since that is when the directory
+ * is guaranteed to exist.
+ */
+let storageSecured = false;
+
+async function ensureStorageIsPrivate() {
+  if (storageSecured) return;
+  storageSecured = true; // Even on failure: retrying every write would be pointless noise.
+
+  try {
+    const directory = await Neutralino.filesystem.getJoinedPath(NL_PATH, '.storage');
+    await Neutralino.filesystem.setPermissions(directory, OWNER_ONLY_DIRECTORY, 'REPLACE');
+  } catch {
+    // Windows maps POSIX modes loosely and may refuse. The token is still only
+    // written when the user asked for it, and signing out removes it.
+  }
+}
 
 /**
  * Write PIA's CA to a private temporary file so `curl --cacert` can read it.
