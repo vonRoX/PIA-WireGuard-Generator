@@ -1,0 +1,49 @@
+name: Bug report
+description: Something the app did that it should not have
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste a `.conf` file, a private key, or your PIA password into an issue.**
+        Redact anything after `PrivateKey =` before sharing a configuration.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Shown in the bottom-right corner of the window.
+      placeholder: v2.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+
+  - type: input
+    id: curl
+    attributes:
+      label: curl version
+      description: Output of `curl --version` (first line only). The app uses curl for every request.
+    validations:
+      required: false
+
+  - type: textarea
+    id: message
+    attributes:
+      label: Error message
+      description: Including anything under "Technical details", if that was shown.
+      render: text

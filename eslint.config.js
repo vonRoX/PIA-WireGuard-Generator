@@ -79,20 +79,27 @@ export default [
   },
 
   {
-    // Playwright specs: Node, but they hand snippets to the browser.
-    files: ['test/e2e/**/*.js'],
+    // Playwright specs and the screenshot script: Node, but they hand snippets
+    // to the browser, so both sets of globals are legitimate here.
+    files: ['test/e2e/**/*.js', 'scripts/screenshots.mjs'],
     ignores: ['test/e2e/neutralino-stub.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
       globals: { ...globals.node, ...globals.browser },
     },
+    rules: {
+      eqeqeq: ['error', 'always'],
+      'no-var': 'error',
+      'prefer-const': 'error',
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
   },
 
   {
     // Tooling and tests: Node.
     files: ['scripts/**/*.{js,mjs}', 'test/**/*.{js,mjs}', 'eslint.config.js', 'playwright.config.js'],
-    ignores: ['test/e2e/**'],
+    ignores: ['test/e2e/**', 'scripts/screenshots.mjs'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
