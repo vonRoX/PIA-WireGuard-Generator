@@ -6,8 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (must already exist)'
+        description: 'Tag to publish, e.g. v2.0.0 (created from `ref` if it does not exist yet)'
         required: true
+      ref:
+        description: 'Branch or commit to release from, when the tag does not exist yet'
+        required: false
+        default: main
 
 permissions:
   contents: write
@@ -20,7 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          # A tag push releases that tag. A manual run releases `ref`, so a
+          # release can be cut without a local tag push; the tag is created
+          # in the publish step, from the commit these jobs actually tested.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -107,9 +114,21 @@ jobs:
           mapfile -t files < <(find assets -type f | sort)
           printf 'attaching %d asset(s)\n' "${#files[@]}"
 
+          # When the tag already exists (the tag-push path) insist that it does,
+          # so a typo cannot silently invent one. When it does not (a manual
+          # run) point the release at the commit just built, and GitHub creates
+          # the tag there.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG exists; publishing it"
+            target=(--verify-tag)
+          else
+            echo "tag $TAG does not exist; creating it at $GITHUB_SHA"
+            target=(--target "$GITHUB_SHA")
+          fi
+
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --notes-file release-notes.md \
-            --verify-tag \
+            "${target[@]}" \
             "${files[@]}"
