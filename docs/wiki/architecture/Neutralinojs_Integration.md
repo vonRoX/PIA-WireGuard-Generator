@@ -4,7 +4,7 @@ aliases: [Neutralino, Wrapper]
 tags: [architecture, neutralino]
 created: "2026-04-18"
 updated: "2026-08-19"
-sources: ["[[2026-04-18_project_overview]]"]
+sources: []
 status: active
 confidence: high
 ---
