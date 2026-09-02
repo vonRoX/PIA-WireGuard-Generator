@@ -3,7 +3,7 @@ title: Project Log
 aliases: [Changelog, Log]
 tags: [project-management, log]
 created: "2026-04-18"
-updated: "2026-08-20"
+updated: "2026-09-02"
 sources: []
 status: active
 confidence: high
@@ -33,3 +33,12 @@ confidence: high
 - Pages updated: [[Neutralinojs_Integration]], [[Frontend_Stack]], [[Authentication_Flow]],
   [[WireGuard_Generation]]
 - Page created: [[Security_Model]]
+
+## [2026-09-02] unifi-sync | Unattended refresh of UniFi VPN Clients
+- Trigger: PIA WireGuard registrations lapse after some hours idle and the token after a day, so a
+  UCG Ultra running two PIA tunnels needed a fresh `.conf` pasted in every few days.
+- Added `scripts/pia-unifi-sync.mjs`: the app's own `PiaClient` under Node, plus a small client for
+  the console's `networkconf` API that rewrites only the registration fields of a WireGuard VPN
+  Client row. Console certificates are pinned by file, never ignored.
+- Offline tests against a fake console over TLS; systemd timer and cron examples.
+- Page created: [[UniFi_Automation]]
