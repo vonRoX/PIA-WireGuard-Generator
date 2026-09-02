@@ -1,0 +1,16 @@
+[Unit]
+Description=Refresh Private Internet Access WireGuard registrations on the UniFi gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The checkout of PIA-WireGuard-Generator; `node` and `curl` must be on PATH.
+WorkingDirectory=/opt/PIA-WireGuard-Generator
+EnvironmentFile=/etc/pia-unifi-sync.env
+ExecStart=/usr/bin/node scripts/pia-unifi-sync.mjs --config /etc/pia-unifi-sync.json --quiet
+DynamicUser=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
