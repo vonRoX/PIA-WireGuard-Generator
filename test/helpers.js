@@ -195,6 +195,63 @@ export function mintSelfSignedCertificate(commonName) {
   };
 }
 
+/**
+ * A self-signed certificate that is **not** a certificate authority.
+ *
+ * `openssl req -x509` adds `basicConstraints = critical, CA:TRUE` by default,
+ * so `mintSelfSignedCertificate` above produces a self-signed *authority* — a
+ * legitimate trust anchor that every TLS backend is happy to accept when it is
+ * handed one as the store.
+ *
+ * A UniFi console does not present that. It presents a self-signed end-entity
+ * certificate, `CA:FALSE`, and asking a backend to treat it as its own trust
+ * anchor is a different question with a different answer: OpenSSL has a special
+ * case for "the leaf is itself in the store", and Windows Schannel may not.
+ * Pinning tests that use the CA:TRUE variant therefore prove the easy case and
+ * say nothing about the one that ships.
+ *
+ * @param {string} commonName
+ * @returns {{dir: string, key: string, cert: string, cleanUp: () => void}}
+ */
+export function mintSelfSignedLeaf(commonName) {
+  const dir = mkdtempSync(join(tmpdir(), 'pia-wg-test-'));
+  const path = (name) => join(dir, name);
+
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', path('server.key'), '-out', path('server.crt'),
+    '-days', '2', '-subj', `/CN=${commonName}`,
+    '-addext', `subjectAltName=DNS:${commonName}`,
+    '-addext', 'basicConstraints=critical,CA:FALSE'], { stdio: 'pipe' });
+
+  return {
+    dir,
+    key: readFileSync(path('server.key'), 'utf8'),
+    cert: readFileSync(path('server.crt'), 'utf8'),
+    cleanUp: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+/**
+ * Which TLS backend the `curl` on PATH was built against.
+ *
+ * On a GitHub Windows runner `curl` may resolve to Git for Windows' OpenSSL
+ * build rather than the system Schannel one, in which case a test that believes
+ * it is exercising Schannel is exercising nothing of the sort. Tests that care
+ * report this rather than assuming.
+ *
+ * @returns {'schannel'|'openssl'|'other'|'unknown'}
+ */
+export function curlTlsBackend() {
+  try {
+    const banner = execFileSync('curl', ['--version'], { encoding: 'utf8', stdio: 'pipe' });
+    if (/\bSchannel\b/i.test(banner)) return 'schannel';
+    if (/\b(?:OpenSSL|quictls|BoringSSL|LibreSSL)\b/i.test(banner)) return 'openssl';
+    return 'other';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /** A server-list payload shaped like the real v6 endpoint: JSON line, then a signature. */
 export function serverListPayload(regions) {
   const document = {
