@@ -3,7 +3,7 @@ title: UniFi Automation
 aliases: [UniFi Sync, Automation, Headless]
 tags: [features, automation, unifi]
 created: "2026-09-02"
-updated: "2026-09-02"
+updated: "2026-09-13"
 sources: []
 status: active
 confidence: medium
@@ -65,8 +65,11 @@ misconfigured.
      `UNIFI_PASSWORD`. A UniFi account with MFA cannot be used unattended.
 
    The API key is preferred: it can be revoked on its own, and a leak does not expose a password.
-   Whether a key is accepted on the `networkconf` route depends on the Network version; `--dry-run`
-   will tell you immediately.
+   Whether a key is accepted on the `networkconf` route depends on the Network version. `--dry-run`
+   does **not** answer that — it registers keys with PIA and then stops, without ever issuing the
+   write (`syncTunnels` skips `updateNetwork` entirely when `dryRun` is set). Use
+   `--diagnose --probe-write`, which writes one row back unchanged and reports whether the console
+   accepted it.
 
 3. **Trust the console's certificate.** A console ships with a self-signed certificate, and the
    script never disables verification. Export the certificate from your browser (the padlock →
@@ -122,15 +125,60 @@ Anywhere with Node 20+ and curl that can reach both the internet and the console
 Raspberry Pi, the machine that already runs Home Assistant. It cannot run *on* the gateway, which
 has no Node, and a script placed on UniFi OS does not survive a firmware update in any case.
 
+### From Windows, by double-click
+
+With no always-on host, a timer is beside the point — you want to fix the tunnels when you notice
+they are down. `scripts\pia-unifi-sync.cmd` does that:
+
+1. Put `pia-unifi-sync.json` and `pia-unifi-sync.env` in the repository root (copy them from
+   `examples\`). Both are already in `.gitignore`.
+2. Double-click `scripts\pia-unifi-sync.cmd`. With no arguments it performs a **dry run** — it
+   registers fresh keys with PIA and prints what it would change, without writing to the console.
+3. When the output looks right, run it again with `--apply`.
+
+Credentials travel in the environment, never on the command line, so they do not appear in the
+window title, the scroll buffer, or another user's process list. The launcher refuses to start
+with a clear message if Node is missing or either file is absent.
+
+### Finding out what your console actually does
+
+`--diagnose` reports the three facts that decide whether this can work, and how:
+
+```
+node scripts/pia-unifi-sync.mjs --config pia-unifi-sync.json --diagnose
+```
+
+It reads the console's certificate — whether it is self-signed, whether it is a CA or a leaf, and
+what names it carries — then performs the same read the sync performs and reports what came back
+that a curl-based client would not be able to see: response header names, whether a session cookie
+was set, and whether a CSRF token was picked up. Header *names* only; no value is ever printed.
+
+Add `--probe-write` to also write each configured row back **unchanged**. That is the only honest
+way to learn whether your credential authorises a write without changing anything: the body is
+byte-identical to what the console just sent, so the gateway re-provisions the tunnel briefly but
+its configuration does not change.
+
 ## How the pieces fit
 
 ```
 scripts/pia-unifi-sync.mjs      argument parsing, credentials, exit codes
-scripts/unifi-sync/sync.mjs     config validation, row patching, the per-tunnel loop
+scripts/unifi-sync/sync.mjs     reads credentials from the environment; re-exports the rest
+resources/js/core/unifi-sync.js config validation, row patching, the per-tunnel loop
 scripts/unifi-sync/unifi.mjs    the console client: sign-in, CSRF, networkconf GET/PUT, certificate pinning
 scripts/unifi-sync/exec.mjs     runs `curl -q --config -` through execFile — no shell at all
 scripts/unifi-sync/crypto.mjs   X25519 from node:crypto, the reference the test suite already trusts
 ```
+
+The sync itself lives in the application's tree rather than beside the script,
+because none of it is specific to a command line: it takes a parsed
+configuration and two injected clients and returns a report. It is built from
+three steps the desktop app can use separately — `inspectTunnels` matches each
+configured tunnel to its row and costs nothing, `prepareTunnel` registers one
+key with PIA, and `applyTunnel` writes one row back. `syncTunnels` is those
+three composed, and it registers and writes one tunnel at a time rather than
+batching every registration ahead of every write: a key PIA has issued does
+nothing until the gateway is using it, so the gap between the two is kept
+small. `test/unifi-sync.test.js` asserts that ordering.
 
 The PIA side is the app's own `HttpClient` and `PiaClient`, so PIA requests are pinned to the
 bundled CA and `addKey` replies are validated before anything is written, exactly as in the app.

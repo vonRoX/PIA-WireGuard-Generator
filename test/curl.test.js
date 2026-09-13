@@ -21,6 +21,7 @@ import {
   isVersionAtLeast,
   CURL_COMMAND,
   MIN_CURL_VERSION_SCHANNEL,
+  isPrivateHost,
 } from '../resources/js/core/curl.js';
 import { HttpClient } from '../resources/js/core/http.js';
 import { PiaClient, TOKEN_ENDPOINT } from '../resources/js/core/pia.js';
@@ -140,6 +141,151 @@ describe('buildCurlConfig', () => {
     assert.throws(
       () => buildCurlConfig({ url: 'https://example.com/', query: [['pt"\ninsecure\nx', 'v']] }),
       AppError,
+    );
+  });
+});
+
+describe('writing, not just reading', () => {
+  const put = (extra = {}) => buildCurlConfig({
+    url: 'https://192.168.1.1/proxy/network/api/s/default/rest/networkconf/abc123',
+    method: 'PUT',
+    headers: { 'x-api-key': 'secret', 'content-type': 'application/json' },
+    body: '{"_id":"abc123"}',
+    ...extra,
+  });
+
+  test('a PUT is requested as a PUT', () => {
+    assert.match(put(), /^request = "PUT"$/m);
+    assert.doesNotMatch(put(), /request = "POST"/);
+  });
+
+  test('a GET asks for no method at all, so curl picks it', () => {
+    const config = buildCurlConfig({ url: 'https://192.168.1.1/x', method: 'GET' });
+    assert.doesNotMatch(config, /^request = /m);
+  });
+
+  test('exactly one method line is ever emitted', () => {
+    for (const method of [undefined, 'GET', 'POST', 'PUT']) {
+      const config = buildCurlConfig({ url: 'https://192.168.1.1/x', method, body: 'x' });
+      const emitted = config.split('\n').filter((line) => line.startsWith('request = '));
+      assert.ok(emitted.length <= 1, `${method} emitted ${emitted.length} method lines`);
+    }
+  });
+
+  test('an unrecognised method is refused, not quietly downgraded to GET', () => {
+    // Silently sending a GET where a write was intended is the worst outcome
+    // available: the caller sees 200 and believes the row was written.
+    for (const method of ['DELETE', 'put', 'PATCH', 'GET\nrequest = "DELETE"', '']) {
+      assert.throws(
+        () => buildCurlConfig({ url: 'https://192.168.1.1/x', method }),
+        (err) => err instanceof AppError && err.code === ErrorCode.INVALID_INPUT,
+        `${JSON.stringify(method)} should have been refused`,
+      );
+    }
+  });
+
+  test('a method from the prototype chain is not a method', () => {
+    assert.throws(() => buildCurlConfig({ url: 'https://192.168.1.1/x', method: 'constructor' }), AppError);
+    assert.throws(() => buildCurlConfig({ url: 'https://192.168.1.1/x', method: 'toString' }), AppError);
+  });
+
+  test('a PUT sends no Expect header, so no middlebox can stall or refuse it', () => {
+    assert.match(put(), /^header = "Expect:"$/m);
+  });
+
+  test('the body is sent verbatim, including a character no shell survives', () => {
+    const body = JSON.stringify({ name: 'PIA — Praha', note: 'a"b\\c' });
+    const config = put({ body });
+
+    // The value is quoted per curl's grammar; recovering it must give back the
+    // original bytes, because the console stores whatever it is sent.
+    const line = /^data-raw = "(.*)"$/m.exec(config);
+    assert.ok(line, 'the body must be sent as data-raw');
+    const recovered = line[1].replace(/\\([\\"])/g, '$1');
+    assert.equal(recovered, body);
+  });
+});
+
+describe('bypassing a proxy, but only on the local network', () => {
+  const withNoProxy = (url) => buildCurlConfig({ url, method: 'GET', noProxy: true });
+
+  test('a console on the LAN is reached directly', () => {
+    for (const host of ['192.168.1.1', '10.0.0.1', '172.16.5.4', '172.31.255.255', '127.0.0.1', 'unifi.local', 'ucg.lan', '[fd00::1]']) {
+      assert.match(withNoProxy(`https://${host}/x`), /^noproxy = "\*"$/m, `${host} should bypass the proxy`);
+    }
+  });
+
+  test('anything that is not demonstrably local keeps its proxy', () => {
+    // Someone reaching their console through a corporate proxy or a remote
+    // access hostname needs that proxy used — and a typo that lands on a public
+    // address must not be handed an API key past the proxy that would refuse it.
+    for (const host of ['unifi.example.com', '203.0.113.9', '172.32.0.1', '172.15.0.1', '8.8.8.8', '[2001:db8::1]']) {
+      assert.doesNotMatch(withNoProxy(`https://${host}/x`), /noproxy/, `${host} should keep its proxy`);
+    }
+  });
+
+  test('no request bypasses a proxy unless it asked to', () => {
+    assert.doesNotMatch(buildCurlConfig({ url: 'https://192.168.1.1/x' }), /noproxy/);
+  });
+
+  test('an address written the long way round is still the address it is', () => {
+    // `isPrivateHost` sees the hostname after URL parsing, which normalises
+    // every IPv4 spelling to dotted quad. That is what makes the check hard to
+    // walk around: `0x0a000001` really is 10.0.0.1 and is treated as local,
+    // while `192.168.1.1.nip.io` is a public name that merely reads like one.
+    assert.match(withNoProxy('https://0x0a000001/x'), /noproxy/);
+    assert.match(withNoProxy('https://167772161/x'), /noproxy/);
+    assert.doesNotMatch(withNoProxy('https://192.168.1.1.nip.io/x'), /noproxy/);
+  });
+
+  test('isPrivateHost is not fooled by a name that merely contains one', () => {
+    assert.equal(isPrivateHost('not-localhost'), false);
+    assert.equal(isPrivateHost('local.example.com'), false);
+    assert.equal(isPrivateHost('192.168.1.1.example.com'), false);
+    assert.equal(isPrivateHost('10.0.0.999'), false);
+    assert.equal(isPrivateHost(''), false);
+    assert.equal(isPrivateHost(undefined), false);
+    assert.equal(isPrivateHost('LOCALHOST'), true, 'the comparison is case-insensitive');
+    assert.equal(isPrivateHost('unifi.local.'), true, 'a fully qualified name ends in a dot');
+  });
+});
+
+describe('reading a response the server refused', () => {
+  const failing = (status) => recordingExec({ exitCode: 0, stdOut: `{"meta":{"rc":"error","msg":"api.err.NoSiteContext"}}\n${status}`, stdErr: '' });
+  const request = { url: 'https://192.168.1.1/x' };
+
+  test('send throws on a non-2xx, as it always did', async () => {
+    const client = new HttpClient(failing(401));
+    await assert.rejects(client.send(request), (err) => err instanceof AppError && err.code === ErrorCode.AUTH);
+  });
+
+  test('sendExpectingAnyStatus hands the status and the body back instead', async () => {
+    const client = new HttpClient(failing(401));
+    const response = await client.sendExpectingAnyStatus(request);
+
+    assert.equal(response.status, 401);
+    assert.match(response.body, /api\.err\.NoSiteContext/,
+      'the point of the method is to read the message the server put in the failure');
+  });
+
+  test('a 500 comes back too — the console answers its own errors in JSON', async () => {
+    const response = await new HttpClient(failing(500)).sendExpectingAnyStatus(request);
+    assert.equal(response.status, 500);
+  });
+
+  test('but a transport failure still throws: there is no status to inspect', async () => {
+    const tls = recordingExec({ exitCode: 60, stdOut: '', stdErr: 'SSL certificate problem' });
+    await assert.rejects(
+      new HttpClient(tls).sendExpectingAnyStatus(request),
+      (err) => err instanceof AppError && err.code === ErrorCode.TLS,
+    );
+  });
+
+  test('and so does a connection that produced no response at all', async () => {
+    const empty = recordingExec({ exitCode: 0, stdOut: '', stdErr: '' });
+    await assert.rejects(
+      new HttpClient(empty).sendExpectingAnyStatus(request),
+      (err) => err instanceof AppError && err.code === ErrorCode.NETWORK,
     );
   });
 });

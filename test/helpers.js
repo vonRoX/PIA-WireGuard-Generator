@@ -100,17 +100,27 @@ export async function startEchoServer() {
 /**
  * A TLS server presenting `certificate`, plus the bookkeeping to shut it down.
  *
+ * The request body is read to the end before the handler runs, so a test can
+ * assert on what actually arrived on the wire — which is the only way to know
+ * that a curl config really produced the request it was meant to.
+ *
  * @param {{key: string, cert: string}} credentials
- * @param {(req: import('node:http').IncomingMessage) => {status: number, body: string}} handler
+ * @param {(req: import('node:http').IncomingMessage, body: string) => {status: number, body: string, headers?: Record<string,string>}} handler
  */
 export async function startTlsServer(credentials, handler) {
   const requests = [];
 
   const server = createHttpsServer({ key: credentials.key, cert: credentials.cert }, (req, res) => {
-    requests.push({ method: req.method, url: req.url });
-    const { status, body } = handler(req);
-    res.writeHead(status, { 'content-type': 'application/json' });
-    res.end(body);
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const received = Buffer.concat(chunks).toString('utf8');
+      requests.push({ method: req.method, url: req.url, headers: req.headers, body: received });
+
+      const { status, body, headers } = handler(req, received);
+      res.writeHead(status, { 'content-type': 'application/json', ...headers });
+      res.end(body);
+    });
   });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -193,6 +203,63 @@ export function mintSelfSignedCertificate(commonName) {
     cert: readFileSync(path('server.crt'), 'utf8'),
     cleanUp: () => rmSync(dir, { recursive: true, force: true }),
   };
+}
+
+/**
+ * A self-signed certificate that is **not** a certificate authority.
+ *
+ * `openssl req -x509` adds `basicConstraints = critical, CA:TRUE` by default,
+ * so `mintSelfSignedCertificate` above produces a self-signed *authority* — a
+ * legitimate trust anchor that every TLS backend is happy to accept when it is
+ * handed one as the store.
+ *
+ * A UniFi console does not present that. It presents a self-signed end-entity
+ * certificate, `CA:FALSE`, and asking a backend to treat it as its own trust
+ * anchor is a different question with a different answer: OpenSSL has a special
+ * case for "the leaf is itself in the store", and Windows Schannel may not.
+ * Pinning tests that use the CA:TRUE variant therefore prove the easy case and
+ * say nothing about the one that ships.
+ *
+ * @param {string} commonName
+ * @returns {{dir: string, key: string, cert: string, cleanUp: () => void}}
+ */
+export function mintSelfSignedLeaf(commonName) {
+  const dir = mkdtempSync(join(tmpdir(), 'pia-wg-test-'));
+  const path = (name) => join(dir, name);
+
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', path('server.key'), '-out', path('server.crt'),
+    '-days', '2', '-subj', `/CN=${commonName}`,
+    '-addext', `subjectAltName=DNS:${commonName}`,
+    '-addext', 'basicConstraints=critical,CA:FALSE'], { stdio: 'pipe' });
+
+  return {
+    dir,
+    key: readFileSync(path('server.key'), 'utf8'),
+    cert: readFileSync(path('server.crt'), 'utf8'),
+    cleanUp: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+/**
+ * Which TLS backend the `curl` on PATH was built against.
+ *
+ * On a GitHub Windows runner `curl` may resolve to Git for Windows' OpenSSL
+ * build rather than the system Schannel one, in which case a test that believes
+ * it is exercising Schannel is exercising nothing of the sort. Tests that care
+ * report this rather than assuming.
+ *
+ * @returns {'schannel'|'openssl'|'other'|'unknown'}
+ */
+export function curlTlsBackend() {
+  try {
+    const banner = execFileSync('curl', ['--version'], { encoding: 'utf8', stdio: 'pipe' });
+    if (/\bSchannel\b/i.test(banner)) return 'schannel';
+    if (/\b(?:OpenSSL|quictls|BoringSSL|LibreSSL)\b/i.test(banner)) return 'openssl';
+    return 'other';
+  } catch {
+    return 'unknown';
+  }
 }
 
 /** A server-list payload shaped like the real v6 endpoint: JSON line, then a signature. */

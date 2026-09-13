@@ -94,6 +94,24 @@ describe('nothing user-controlled reaches a shell', () => {
     assert.deepEqual(invocations.sort(), ["'curl --version'", 'CURL_COMMAND'].sort());
   });
 
+  test('the escape hatch for non-2xx responses has a short guest list', () => {
+    // `sendExpectingAnyStatus` returns the body of a 401 or a 500 instead of
+    // throwing, which is right for an appliance that explains itself in the
+    // failure — and wrong everywhere else, because the body of a 401 is often a
+    // sign-in page. Every caller has to inspect `status` first, so the set of
+    // callers stays small enough to read.
+    const ALLOWED = new Set([
+      'resources/js/core/http.js',  // where `send` is built on top of it
+      'resources/js/core/unifi.js', // the console client, which reads `meta.rc` out of a failure
+    ]);
+
+    for (const source of SOURCES) {
+      if (!/sendExpectingAnyStatus/.test(stripComments(source.text))) continue;
+      assert.ok(ALLOWED.has(source.rel),
+        `${source.rel} bypasses the non-2xx check — it must inspect status itself, and be listed here`);
+    }
+  });
+
   test('the only command the app can run is a constant', () => {
     const curl = readFileSync(join(APP_JS, 'core', 'curl.js'), 'utf8');
     assert.match(curl, /export const CURL_COMMAND = 'curl -q --config -';/);
