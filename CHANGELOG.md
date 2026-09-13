@@ -15,6 +15,21 @@ All notable changes to this project are documented here. The format follows
   environment or `*_FILE` secrets; the console's self-signed certificate is pinned from an exported
   file rather than verification being switched off. Documented in
   `docs/wiki/features/UniFi_Automation.md`, with systemd units under `examples/`.
+- `scripts/pia-unifi-sync.cmd`, a double-clickable launcher for Windows. With no always-on host to
+  run a timer on, this is the one-click form of the same chore: dry run by default, `--apply` to
+  write. Credentials are read from `pia-unifi-sync.env` into the environment and never appear on a
+  command line.
+- `--diagnose` on the sync script, reporting what the console's certificate carries and what its
+  responses contain that a curl-based client could not see — response header names, whether a
+  session cookie was set, whether a CSRF token was derived. Header names only; never a value.
+  `--probe-write` additionally writes one row back byte-identical, which is the only way to learn
+  whether a credential authorises a write without changing anything.
+
+### Fixed
+
+- `docs/wiki/features/UniFi_Automation.md` claimed `--dry-run` would show immediately whether an
+  API key is accepted on the `networkconf` route. It cannot: a dry run never issues the write.
+  The page now points at `--diagnose --probe-write`, which does.
 
 ## [2.0.0] - 2026-08-20
 

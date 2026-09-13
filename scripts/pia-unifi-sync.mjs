@@ -27,13 +27,20 @@ import { curlExec } from './unifi-sync/exec.mjs';
 import { nodeCrypto } from './unifi-sync/crypto.mjs';
 import { UnifiClient, trustFromPem } from './unifi-sync/unifi.mjs';
 import { loadSyncConfig, readCredentials, syncTunnels } from './unifi-sync/sync.mjs';
+import { probeCertificate, probeRead, probeWrite, formatDiagnosis } from './unifi-sync/diagnose.mjs';
 
-const USAGE = `Usage: node scripts/pia-unifi-sync.mjs --config <file> [--dry-run | --list-regions | --list-networks]
+const USAGE = `Usage: node scripts/pia-unifi-sync.mjs --config <file> [--dry-run | --list-regions | --list-networks | --diagnose]
 
   --config <file>    JSON file naming the UniFi console and the tunnels to refresh
   --dry-run          register new keys with PIA and show what would change, but do not write to UniFi
   --list-regions     print PIA's WireGuard region ids and exit
   --list-networks    print the VPN Clients found in UniFi and exit
+  --diagnose         report what the console's certificate carries, and what its
+                     responses contain that a curl-based client could not see
+  --probe-write      with --diagnose, also write each configured row back
+                     unchanged, to learn whether the credential authorises a
+                     write. Byte-identical, so the tunnel re-provisions but its
+                     configuration does not change.
   --quiet            only print failures
 
 Environment: PIA_USERNAME, PIA_PASSWORD, and UNIFI_API_KEY or UNIFI_USERNAME + UNIFI_PASSWORD.
@@ -41,7 +48,10 @@ Any of them may instead be given as <NAME>_FILE, naming a file that holds the va
 `;
 
 function parseArgs(argv) {
-  const options = { config: '', dryRun: false, listRegions: false, listNetworks: false, quiet: false, help: false };
+  const options = {
+    config: '', dryRun: false, listRegions: false, listNetworks: false,
+    diagnose: false, probeWrite: false, quiet: false, help: false,
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -49,6 +59,8 @@ function parseArgs(argv) {
     else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--list-regions') options.listRegions = true;
     else if (arg === '--list-networks') options.listNetworks = true;
+    else if (arg === '--diagnose') options.diagnose = true;
+    else if (arg === '--probe-write') options.probeWrite = true;
     else if (arg === '--quiet' || arg === '-q') options.quiet = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new AppError('INVALID_INPUT', `Unknown argument: ${arg}`);
@@ -117,6 +129,37 @@ async function main() {
     if (!credentials.unifiApiKey) {
       log(`Signing in to ${config.unifi.url}…`);
       await unifi.login(credentials.unifiUsername, credentials.unifiPassword);
+    }
+
+    if (options.diagnose) {
+      let certificate;
+      let certificateError;
+      try {
+        certificate = await probeCertificate(config.unifi.url);
+      } catch (err) {
+        certificateError = err;
+      }
+
+      const read = await probeRead(unifi, config.unifi.site);
+
+      let writes;
+      if (options.probeWrite) {
+        writes = [];
+        for (const tunnel of config.tunnels) {
+          const row = read.rows.find((candidate) => candidate && candidate.name === tunnel.network);
+          writes.push({
+            name: tunnel.network,
+            result: row
+              ? await probeWrite(unifi, row)
+              : { ok: false, error: new AppError('INVALID_INPUT', 'No row with that name was returned by the console.') },
+          });
+        }
+      }
+
+      for (const line of formatDiagnosis({ certificate, certificateError, read, writes })) {
+        process.stdout.write(`${line}\n`);
+      }
+      return 0;
     }
 
     if (options.listNetworks) {

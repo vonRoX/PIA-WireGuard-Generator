@@ -65,8 +65,11 @@ misconfigured.
      `UNIFI_PASSWORD`. A UniFi account with MFA cannot be used unattended.
 
    The API key is preferred: it can be revoked on its own, and a leak does not expose a password.
-   Whether a key is accepted on the `networkconf` route depends on the Network version; `--dry-run`
-   will tell you immediately.
+   Whether a key is accepted on the `networkconf` route depends on the Network version. `--dry-run`
+   does **not** answer that — it registers keys with PIA and then stops, without ever issuing the
+   write (`syncTunnels` skips `updateNetwork` entirely when `dryRun` is set). Use
+   `--diagnose --probe-write`, which writes one row back unchanged and reports whether the console
+   accepted it.
 
 3. **Trust the console's certificate.** A console ships with a self-signed certificate, and the
    script never disables verification. Export the certificate from your browser (the padlock →
@@ -121,6 +124,39 @@ misconfigured.
 Anywhere with Node 20+ and curl that can reach both the internet and the console: a NAS, a
 Raspberry Pi, the machine that already runs Home Assistant. It cannot run *on* the gateway, which
 has no Node, and a script placed on UniFi OS does not survive a firmware update in any case.
+
+### From Windows, by double-click
+
+With no always-on host, a timer is beside the point — you want to fix the tunnels when you notice
+they are down. `scripts\pia-unifi-sync.cmd` does that:
+
+1. Put `pia-unifi-sync.json` and `pia-unifi-sync.env` in the repository root (copy them from
+   `examples\`). Both are already in `.gitignore`.
+2. Double-click `scripts\pia-unifi-sync.cmd`. With no arguments it performs a **dry run** — it
+   registers fresh keys with PIA and prints what it would change, without writing to the console.
+3. When the output looks right, run it again with `--apply`.
+
+Credentials travel in the environment, never on the command line, so they do not appear in the
+window title, the scroll buffer, or another user's process list. The launcher refuses to start
+with a clear message if Node is missing or either file is absent.
+
+### Finding out what your console actually does
+
+`--diagnose` reports the three facts that decide whether this can work, and how:
+
+```
+node scripts/pia-unifi-sync.mjs --config pia-unifi-sync.json --diagnose
+```
+
+It reads the console's certificate — whether it is self-signed, whether it is a CA or a leaf, and
+what names it carries — then performs the same read the sync performs and reports what came back
+that a curl-based client would not be able to see: response header names, whether a session cookie
+was set, and whether a CSRF token was picked up. Header *names* only; no value is ever printed.
+
+Add `--probe-write` to also write each configured row back **unchanged**. That is the only honest
+way to learn whether your credential authorises a write without changing anything: the body is
+byte-identical to what the console just sent, so the gateway re-provisions the tunnel briefly but
+its configuration does not change.
 
 ## How the pieces fit
 
