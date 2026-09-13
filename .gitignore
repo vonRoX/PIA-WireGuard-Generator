@@ -11,6 +11,12 @@ resources/js/neutralino.d.ts
 # Generated WireGuard configurations — never commit one, it holds a private key
 *.conf
 
+# Local copies of the UniFi sync configuration and its credentials
+/pia-unifi-sync.json
+/pia-unifi-sync.env
+*.env
+!*.env.example
+
 # Test and tooling output
 node_modules/
 test-results/

@@ -171,6 +171,30 @@ export function mintCertificate(commonName) {
   };
 }
 
+/**
+ * Mint a self-signed certificate for `commonName` — what a UniFi console presents
+ * out of the box, and what a user exports from the browser to pin it.
+ *
+ * @param {string} commonName
+ * @returns {{dir: string, key: string, cert: string, cleanUp: () => void}}
+ */
+export function mintSelfSignedCertificate(commonName) {
+  const dir = mkdtempSync(join(tmpdir(), 'pia-wg-test-'));
+  const path = (name) => join(dir, name);
+
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', path('server.key'), '-out', path('server.crt'),
+    '-days', '2', '-subj', `/CN=${commonName}`,
+    '-addext', `subjectAltName=DNS:${commonName}`], { stdio: 'pipe' });
+
+  return {
+    dir,
+    key: readFileSync(path('server.key'), 'utf8'),
+    cert: readFileSync(path('server.crt'), 'utf8'),
+    cleanUp: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
 /** A server-list payload shaped like the real v6 endpoint: JSON line, then a signature. */
 export function serverListPayload(regions) {
   const document = {

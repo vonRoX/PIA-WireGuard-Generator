@@ -1,0 +1,12 @@
+{
+  "unifi": {
+    "url": "https://192.168.1.1",
+    "site": "default",
+    "certificate": "unifi-console.pem"
+  },
+  "dns": "10.0.0.243",
+  "tunnels": [
+    { "network": "WireGuard PIA CZ", "region": "czech" },
+    { "network": "WireGuard US East", "region": "us_east" }
+  ]
+}

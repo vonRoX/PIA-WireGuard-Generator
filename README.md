@@ -121,6 +121,27 @@ phone. Import the file into your router or client and you are done.
 > The app uses **curl** for every network request. Windows 10 1803+, macOS, and most Linux
 > distributions ship it. If it is missing the app tells you on startup rather than failing later.
 
+## Keeping a UniFi gateway registered automatically
+
+PIA's servers drop a WireGuard registration after some hours without a handshake, and the account
+token lasts a day, so a tunnel on a router that reboots or loses its WAN for a while comes back as
+**Not Established** until a fresh configuration is pasted in. For UniFi gateways (UCG Ultra, UDM,
+UDR) there is a headless companion that does the whole round trip on a timer:
+
+```bash
+cp examples/pia-unifi-sync.example.json pia-unifi-sync.json   # name your VPN Clients and regions
+export PIA_USERNAME=p1234567 PIA_PASSWORD=… UNIFI_API_KEY=…      # or UNIFI_USERNAME + UNIFI_PASSWORD
+node scripts/pia-unifi-sync.mjs --config pia-unifi-sync.json --dry-run
+```
+
+It signs in to PIA with the same pinned, validated code path as the app, registers a new key pair
+for each tunnel, and rewrites only the key, endpoint and address fields of the matching WireGuard
+**VPN Client** in the console — routing and everything else you set up stay as they are. The
+console's self-signed certificate is pinned from a file you export, never ignored. Needs Node 20+
+and curl on any always-on machine that can reach both the internet and the gateway; systemd units
+are in [`examples/systemd/`](examples/systemd/), and the details are in
+[`docs/wiki/features/UniFi_Automation.md`](docs/wiki/features/UniFi_Automation.md).
+
 ## Security
 
 This tool handles a VPN credential and writes a private key to disk, so it is worth being precise

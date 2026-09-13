@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh PIA WireGuard registrations twice a day
+
+[Timer]
+# PIA tokens last about a day and a registration lapses after some hours idle;
+# twice daily leaves a comfortable margin. Add RandomizedDelaySec to spread load.
+OnCalendar=*-*-* 04,16:00:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

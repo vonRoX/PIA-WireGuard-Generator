@@ -3,7 +3,7 @@ title: Wiki Index
 aliases: [Index, Home]
 tags: [knowledge-base, index]
 created: "2026-04-18"
-updated: "2026-08-20"
+updated: "2026-09-02"
 sources: []
 status: active
 confidence: high
@@ -24,3 +24,4 @@ Design notes for the PIA WireGuard Generator. User-facing documentation lives in
 ## Features
 - [[Authentication_Flow]] — sign-in, token handling, and expiry
 - [[WireGuard_Generation]] — region selection, key generation, registration, and output
+- [[UniFi_Automation]] — keeping UniFi VPN Clients registered from a timer, without the desktop

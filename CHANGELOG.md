@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `scripts/pia-unifi-sync.mjs`, a headless companion for UniFi gateways. It signs in to PIA,
+  registers a fresh key pair with a server in each configured region, and rewrites the matching
+  WireGuard **VPN Client** rows on the console through its local API, so a timer can keep the
+  tunnels registered instead of a person pasting configurations. Credentials come from the
+  environment or `*_FILE` secrets; the console's self-signed certificate is pinned from an exported
+  file rather than verification being switched off. Documented in
+  `docs/wiki/features/UniFi_Automation.md`, with systemd units under `examples/`.
+
 ## [2.0.0] - 2026-08-20
 
 A security and correctness release. Everything below came out of a review of v1.1.0.
