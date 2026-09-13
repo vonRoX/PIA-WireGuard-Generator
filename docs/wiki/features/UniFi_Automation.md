@@ -3,7 +3,7 @@ title: UniFi Automation
 aliases: [UniFi Sync, Automation, Headless]
 tags: [features, automation, unifi]
 created: "2026-09-02"
-updated: "2026-09-02"
+updated: "2026-09-13"
 sources: []
 status: active
 confidence: medium
@@ -162,11 +162,23 @@ its configuration does not change.
 
 ```
 scripts/pia-unifi-sync.mjs      argument parsing, credentials, exit codes
-scripts/unifi-sync/sync.mjs     config validation, row patching, the per-tunnel loop
+scripts/unifi-sync/sync.mjs     reads credentials from the environment; re-exports the rest
+resources/js/core/unifi-sync.js config validation, row patching, the per-tunnel loop
 scripts/unifi-sync/unifi.mjs    the console client: sign-in, CSRF, networkconf GET/PUT, certificate pinning
 scripts/unifi-sync/exec.mjs     runs `curl -q --config -` through execFile — no shell at all
 scripts/unifi-sync/crypto.mjs   X25519 from node:crypto, the reference the test suite already trusts
 ```
+
+The sync itself lives in the application's tree rather than beside the script,
+because none of it is specific to a command line: it takes a parsed
+configuration and two injected clients and returns a report. It is built from
+three steps the desktop app can use separately — `inspectTunnels` matches each
+configured tunnel to its row and costs nothing, `prepareTunnel` registers one
+key with PIA, and `applyTunnel` writes one row back. `syncTunnels` is those
+three composed, and it registers and writes one tunnel at a time rather than
+batching every registration ahead of every write: a key PIA has issued does
+nothing until the gateway is using it, so the gap between the two is kept
+small. `test/unifi-sync.test.js` asserts that ordering.
 
 The PIA side is the app's own `HttpClient` and `PiaClient`, so PIA requests are pinned to the
 bundled CA and `addKey` replies are validated before anything is written, exactly as in the app.

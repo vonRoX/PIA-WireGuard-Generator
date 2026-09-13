@@ -38,13 +38,23 @@ export class HttpClient {
   }
 
   /**
-   * Perform a request and return the decoded body.
+   * Perform a request and return the decoded body **whatever the status was**.
+   *
+   * Transport and TLS failures still throw — a handshake that could not be
+   * verified has no status to inspect — but an HTTP status outside 2xx comes
+   * back as data.
+   *
+   * Callers MUST look at `status` before touching `body`. A 401 from an
+   * appliance is usually an HTML sign-in page, and handing that to `JSON.parse`
+   * produces a parse error where an authentication error belongs. The only
+   * reason to use this instead of `send` is to read a message the server put
+   * *in* an error response; if you are not doing that, use `send`.
    *
    * @param {import('./curl.js').CurlRequest} request
    * @returns {Promise<{body: string, status: number}>}
-   * @throws {AppError} on transport failure, TLS failure or a non-2xx status
+   * @throws {AppError} on transport failure, TLS failure, or no response at all
    */
-  async send(request) {
+  async sendExpectingAnyStatus(request) {
     // Only the pinned requests need the Schannel accommodation; everything else
     // is validated against the system trust store, which has revocation data.
     const config = buildCurlConfig(
@@ -74,6 +84,19 @@ export class HttpClient {
         'The server closed the connection without sending a response.',
         { detail: (result.stdErr || '').trim().slice(0, 300) });
     }
+
+    return { body, status };
+  }
+
+  /**
+   * Perform a request, and treat anything but a 2xx as a failure.
+   *
+   * @param {import('./curl.js').CurlRequest} request
+   * @returns {Promise<{body: string, status: number}>}
+   * @throws {AppError} on transport failure, TLS failure or a non-2xx status
+   */
+  async send(request) {
+    const { body, status } = await this.sendExpectingAnyStatus(request);
 
     if (status < 200 || status >= 300) {
       throw httpStatusToError(status, body);

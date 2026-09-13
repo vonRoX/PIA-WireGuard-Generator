@@ -32,6 +32,9 @@ export const MIN_CURL_VERSION = [7, 49, 0];
  */
 export const MIN_CURL_VERSION_SCHANNEL = [7, 70, 0];
 
+/** The methods this app has a reason to send. Anything else is a bug, not a feature. */
+const METHODS = new Set(['GET', 'POST', 'PUT']);
+
 const DEFAULT_CONNECT_TIMEOUT_SECONDS = 15;
 const DEFAULT_MAX_TIME_SECONDS = 45;
 
@@ -77,9 +80,11 @@ export function quoteConfigValue(value) {
 /**
  * @typedef {object} CurlRequest
  * @property {string}   url          absolute https:// URL
- * @property {'GET'|'POST'} [method]
+ * @property {'GET'|'POST'|'PUT'} [method]
  * @property {Record<string,string>} [headers]
  * @property {string}   [body]       raw request body, sent verbatim
+ * @property {boolean}  [noProxy]    bypass any configured proxy — honoured only
+ *           for a host on the local network; see `isPrivateHost`
  * @property {Array<[string,string]>} [query] params curl will URL-encode and append
  * @property {string}   [caCertPath] verify the peer against this CA bundle instead of the system store
  * @property {{host: string, port: number, toHost: string, toPort: number}} [connectTo]
@@ -128,8 +133,26 @@ export function buildCurlConfig(request) {
     'write-out = "\\n%{http_code}"',
   ];
 
+  // Each of these emits one fixed line. The method is never user-supplied — it
+  // comes from a call site in this repository — but an unrecognised one would
+  // otherwise be silently ignored and the request sent as a GET, which for a
+  // write is the worst possible failure: it looks like it worked.
+  if (request.method !== undefined && !METHODS.has(request.method)) {
+    throw new AppError(ErrorCode.INVALID_INPUT, 'Internal error: unsupported HTTP method.',
+      { detail: String(request.method).slice(0, 20) });
+  }
   if (request.method === 'POST') {
     lines.push('request = "POST"');
+  }
+  if (request.method === 'PUT') {
+    lines.push('request = "PUT"');
+    // curl announces `Expect: 100-continue` for a body over 1KB and then waits
+    // for the interim reply. A UniFi VPN Client row is comfortably over that.
+    // The console itself answers promptly, but a proxy or an inspecting
+    // middlebox in the path may answer 417 instead, and curl's one-second
+    // fallback is a second added to every write. Sending the header empty
+    // removes it, which is what every browser does with a PUT anyway.
+    lines.push('header = "Expect:"');
   }
 
   for (const [name, value] of Object.entries(request.headers || {})) {
@@ -147,6 +170,19 @@ export function buildCurlConfig(request) {
       assertQueryParamName(name);
       lines.push(`data-urlencode = ${quoteConfigValue(`${name}=${value}`)}`);
     }
+  }
+
+  if (request.noProxy && isPrivateHost(hostOf(request.url))) {
+    // A console lives on the LAN, and a proxy configured for the internet
+    // cannot reach it — `http_proxy` set for a work VPN turns every request at
+    // 192.168.1.1 into a confusing timeout.
+    //
+    // The check matters: somebody who reaches their console through a corporate
+    // proxy, a jump host, or a remote-access hostname needs that proxy used.
+    // Bypassing it unconditionally would break exactly that case, and would
+    // also let a typo in the address send an API key straight out to the
+    // internet past the proxy that would have refused it.
+    lines.push('noproxy = "*"');
   }
 
   if (request.caCertPath) {
@@ -227,6 +263,59 @@ export function isVersionAtLeast(actual, minimum) {
     if (actual[i] < minimum[i]) return false;
   }
   return true;
+}
+
+/**
+ * Is this host on a network a proxy has no business being consulted about?
+ *
+ * Deliberately narrow: only the address ranges and name suffixes that are
+ * reserved, by registry or by convention, for a network you are already on.
+ * Anything else — a public address, a real domain name, a hostname resolved by
+ * a corporate DNS server — is treated as remote, so its proxy keeps working.
+ *
+ * @param {string} host hostname or IP literal, without brackets or port
+ * @returns {boolean}
+ */
+export function isPrivateHost(host) {
+  if (typeof host !== 'string' || host === '') return false;
+
+  const name = host.toLowerCase().replace(/\.$/, '');
+
+  if (name === 'localhost') return true;
+  // mDNS and the names RFC 8375 / common practice reserve for a home network.
+  if (/\.(?:local|lan|internal|home\.arpa)$/.test(name)) return true;
+
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
+  if (ipv4) {
+    const [a, b] = ipv4.slice(1, 3).map(Number);
+    if (ipv4.slice(1).some((part) => Number(part) > 255)) return false;
+    if (a === 10 || a === 127) return true;                  // RFC 1918, loopback
+    if (a === 192 && b === 168) return true;                 // RFC 1918
+    if (a === 172 && b >= 16 && b <= 31) return true;        // RFC 1918
+    if (a === 169 && b === 254) return true;                 // link-local
+    return false;
+  }
+
+  if (name.includes(':')) {
+    if (name === '::1') return true;                         // loopback
+    if (/^f[cd][0-9a-f]{2}:/.test(name)) return true;        // unique local, fc00::/7
+    if (/^fe[89ab][0-9a-f]:/.test(name)) return true;        // link-local, fe80::/10
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * @param {string} url
+ * @returns {string} the hostname, with IPv6 brackets removed
+ */
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return '';
+  }
 }
 
 function toPositiveInteger(value, fallback) {

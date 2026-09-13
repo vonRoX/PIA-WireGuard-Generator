@@ -23,6 +23,7 @@ import { nodeCrypto } from '../scripts/unifi-sync/crypto.mjs';
 import { UnifiClient, trustFromPem, csrfTokenFromJwt, parseSetCookie } from '../scripts/unifi-sync/unifi.mjs';
 import {
   loadSyncConfig, readCredentials, findWireGuardClient, patchWireGuardClient, describeChanges, syncTunnels,
+  inspectTunnels, prepareTunnel, applyTunnel,
 } from '../scripts/unifi-sync/sync.mjs';
 import { hasOpenssl, mintCertificate, mintSelfSignedCertificate, nodeScalarMultBase } from './helpers.js';
 
@@ -234,6 +235,133 @@ describe('UniFi OS session plumbing', () => {
   });
 });
 
+/**
+ * The three steps `syncTunnels` is made of, exercised on their own.
+ *
+ * The desktop app needs them separately: it can show what a refresh would touch
+ * before spending an account token on it, and it already holds a PIA token of
+ * its own. Testing them only through `syncTunnels` would leave the seams
+ * untested exactly where the app will lean on them.
+ */
+describe('the steps a sync is made of', () => {
+  const REGIONS = [
+    { id: 'czech', name: 'Czech Republic', country: 'CZ', portForward: true, geo: false, servers: [{ ip: '185.216.35.1', cn: 'prague401' }] },
+  ];
+  const rows = [
+    { _id: 'aaa111', name: 'Default', purpose: 'corporate' },
+    vpnClientRow({ _id: 'bbb222' }),
+  ];
+
+  describe('inspectTunnels', () => {
+    const config = loadSyncConfig({
+      unifi: { url: 'https://192.168.1.1' },
+      tunnels: [{ network: 'WireGuard PIA CZ', region: 'czech' }, { network: 'Gone', region: 'us_east' }],
+    });
+
+    test('resolves each tunnel to its row, in order, without throwing on a miss', () => {
+      const inspected = inspectTunnels({ config, networks: rows });
+
+      assert.equal(inspected.length, 2);
+      assert.equal(inspected[0].entry._id, 'bbb222');
+      assert.equal(inspected[0].error, undefined);
+
+      assert.equal(inspected[1].entry, undefined);
+      assert.ok(inspected[1].error instanceof AppError, 'a missing row is recorded, not thrown');
+      assert.match(inspected[1].error.message, /No WireGuard VPN Client named "Gone"/);
+      assert.equal(inspected[1].tunnel.network, 'Gone', 'the tunnel is carried along so the report can name it');
+    });
+
+    test('costs nothing — no client is even required', () => {
+      // The signature takes no `pia` and no `unifi` on purpose: this is the step
+      // that can be put in front of somebody before they commit to anything.
+      assert.doesNotThrow(() => inspectTunnels({ config, networks: [] }));
+    });
+  });
+
+  describe('prepareTunnel', () => {
+    const tunnel = { network: 'WireGuard PIA CZ', region: 'czech', dns: '10.0.0.243' };
+    const entry = vpnClientRow({ _id: 'bbb222' });
+
+    test('registers one key and returns the row that follows from it', async () => {
+      const calls = [];
+      const pia = {
+        async addKey(args) {
+          calls.push(args);
+          return { ...PEER, serverIp: args.server.ip };
+        },
+      };
+
+      const prepared = await prepareTunnel({ pia, token: 'tok', regions: REGIONS, crypto: nodeCrypto, tunnel, entry });
+
+      assert.equal(calls.length, 1, 'exactly one registration is spent');
+      assert.equal(calls[0].token, 'tok');
+      assert.ok(isBase64Key(calls[0].publicKey));
+
+      assert.equal(prepared.server.cn, 'prague401');
+      assert.equal(prepared.region.name, 'Czech Republic');
+      assert.equal(prepared.next._id, 'bbb222');
+      assert.equal(prepared.next.wireguard_client_peer_ip, '185.216.35.1');
+      assert.equal(prepared.next.ip_subnet, `${PEER.peerIp}/32`);
+      assert.ok(prepared.changes.some((c) => c.startsWith('x_wireguard_private_key (redacted)')));
+      assert.equal(entry.ip_subnet, '10.20.30.40/32', 'the row that was read must not be mutated');
+    });
+
+    test('refuses an unknown region before spending anything', async () => {
+      let called = false;
+      const pia = { async addKey() { called = true; return { ...PEER }; } };
+
+      await assert.rejects(
+        prepareTunnel({ pia, token: 'tok', regions: REGIONS, crypto: nodeCrypto, tunnel: { ...tunnel, region: 'atlantis' }, entry }),
+        /no WireGuard region with id "atlantis"/,
+      );
+      assert.equal(called, false, 'a typo in the config must not cost a registration');
+    });
+
+    test('logs the server it is about to use, and no credential', async () => {
+      const lines = [];
+      const pia = { async addKey() { return { ...PEER }; } };
+
+      await prepareTunnel({ pia, token: 'tok', regions: REGIONS, crypto: nodeCrypto, tunnel, entry, log: (l) => lines.push(l) });
+
+      assert.match(lines.join('\n'), /registering a new key with prague401 \(Czech Republic\)/);
+      assert.doesNotMatch(lines.join('\n'), /tok/);
+    });
+  });
+
+  describe('applyTunnel', () => {
+    test('writes the prepared row under the id of the row that was read', async () => {
+      const written = [];
+      const unifi = { async updateNetwork(id, next) { written.push({ id, next }); return next; } };
+      const entry = vpnClientRow({ _id: 'bbb222' });
+      const next = { ...entry, ip_subnet: '10.9.9.9/32' };
+
+      const echoed = await applyTunnel({ unifi, entry, next });
+
+      assert.deepEqual(written, [{ id: 'bbb222', next }]);
+      assert.equal(echoed.ip_subnet, '10.9.9.9/32');
+    });
+  });
+
+  test('syncTunnels skips the sign-in when a token is already in hand', async () => {
+    const config = loadSyncConfig({ unifi: { url: 'https://192.168.1.1' }, tunnels: [{ network: 'WireGuard PIA CZ', region: 'czech' }] });
+    let loggedIn = false;
+    const pia = {
+      async login() { loggedIn = true; return 'other'; },
+      async fetchRegions() { return REGIONS; },
+      async addKey({ token }) {
+        assert.equal(token, 'already-held', 'the token the caller passed is the one that must be used');
+        return { ...PEER };
+      },
+    };
+    const unifi = { async listNetworks() { return rows; }, async updateNetwork(id, next) { return next; } };
+
+    const results = await syncTunnels({ pia, unifi, crypto: nodeCrypto, config, token: 'already-held' });
+
+    assert.deepEqual(results.map((r) => r.ok), [true]);
+    assert.equal(loggedIn, false);
+  });
+});
+
 describe('against a fake console over TLS', { skip }, () => {
   let cert;
   let rogueCert;
@@ -252,6 +380,7 @@ describe('against a fake console over TLS', { skip }, () => {
     req.on('end', () => {
       const body = Buffer.concat(chunks).toString('utf8');
       state.requests.push({ method: req.method, url: req.url, headers: req.headers, body });
+      state.timeline.push(`${req.method} ${req.url}`);
 
       const json = (status, payload, headers = {}) => {
         res.writeHead(status, { 'content-type': 'application/json', ...headers });
@@ -310,7 +439,7 @@ describe('against a fake console over TLS', { skip }, () => {
   });
 
   function freshState() {
-    state = { requests: [], rows: [{ _id: 'aaa111', name: 'Default', purpose: 'corporate' }, vpnClientRow({ _id: 'bbb222' }), vpnClientRow({ _id: 'ccc333', name: 'WireGuard US East' })] };
+    state = { requests: [], timeline: [], rows: [{ _id: 'aaa111', name: 'Default', purpose: 'corporate' }, vpnClientRow({ _id: 'bbb222' }), vpnClientRow({ _id: 'ccc333', name: 'WireGuard US East' })] };
   }
 
   function client(extra = {}) {
@@ -413,6 +542,7 @@ describe('against a fake console over TLS', { skip }, () => {
         assert.equal(token, 'tok');
         assert.ok(isBase64Key(publicKey));
         addKeyCalls.push(server.cn);
+        state.timeline.push(`addKey ${server.cn}`);
         return { peerIp: `10.${addKeyCalls.length}.0.2`, serverKey: PEER.serverKey, serverIp: server.ip, serverPort: 1337 };
       },
     };
@@ -448,6 +578,49 @@ describe('against a fake console over TLS', { skip }, () => {
 
     const joined = lines.join('\n');
     assert.doesNotMatch(joined, /tok|pw|api-key-1/, 'the log must not carry credentials');
+  });
+
+  test('each registration is written before the next one is made', async () => {
+    freshState();
+    const unifi = client({ apiKey: 'api-key-1' });
+
+    const pia = {
+      async login() { return 'tok'; },
+      async fetchRegions() {
+        return [
+          { id: 'czech', name: 'Czech Republic', country: 'CZ', portForward: true, geo: false, servers: [{ ip: '185.216.35.1', cn: 'prague401' }] },
+          { id: 'us_east', name: 'US East', country: 'US', portForward: false, geo: false, servers: [{ ip: '84.239.14.1', cn: 'newyork402' }] },
+        ];
+      },
+      async addKey({ server }) {
+        state.timeline.push(`addKey ${server.cn}`);
+        return { peerIp: '10.1.0.2', serverKey: PEER.serverKey, serverIp: server.ip, serverPort: 1337 };
+      },
+    };
+
+    const config = loadSyncConfig({
+      unifi: { url: `https://127.0.0.1:${server.address().port}` },
+      tunnels: [
+        { network: 'WireGuard PIA CZ', region: 'czech' },
+        { network: 'WireGuard US East', region: 'us_east' },
+      ],
+    });
+
+    await syncTunnels({ pia, unifi, crypto: nodeCrypto, config, credentials: { piaUsername: 'p', piaPassword: 'p' } });
+
+    // The order is the behaviour, not an accident of the loop. A key PIA has
+    // issued is worth nothing until the gateway is using it: writing each row
+    // before registering the next keeps that window as short as it can be, and
+    // means an account token spent on the second tunnel cannot orphan the key
+    // already issued for the first. A refactor that batches every registration
+    // ahead of every write changes that, so the suite has to be able to see it.
+    assert.deepEqual(state.timeline, [
+      'GET /proxy/network/api/s/default/rest/networkconf',
+      'addKey prague401',
+      'PUT /proxy/network/api/s/default/rest/networkconf/bbb222',
+      'addKey newyork402',
+      'PUT /proxy/network/api/s/default/rest/networkconf/ccc333',
+    ]);
   });
 
   test('a dry run registers with PIA but writes nothing', async () => {

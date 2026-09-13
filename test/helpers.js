@@ -100,17 +100,27 @@ export async function startEchoServer() {
 /**
  * A TLS server presenting `certificate`, plus the bookkeeping to shut it down.
  *
+ * The request body is read to the end before the handler runs, so a test can
+ * assert on what actually arrived on the wire — which is the only way to know
+ * that a curl config really produced the request it was meant to.
+ *
  * @param {{key: string, cert: string}} credentials
- * @param {(req: import('node:http').IncomingMessage) => {status: number, body: string}} handler
+ * @param {(req: import('node:http').IncomingMessage, body: string) => {status: number, body: string, headers?: Record<string,string>}} handler
  */
 export async function startTlsServer(credentials, handler) {
   const requests = [];
 
   const server = createHttpsServer({ key: credentials.key, cert: credentials.cert }, (req, res) => {
-    requests.push({ method: req.method, url: req.url });
-    const { status, body } = handler(req);
-    res.writeHead(status, { 'content-type': 'application/json' });
-    res.end(body);
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const received = Buffer.concat(chunks).toString('utf8');
+      requests.push({ method: req.method, url: req.url, headers: req.headers, body: received });
+
+      const { status, body, headers } = handler(req, received);
+      res.writeHead(status, { 'content-type': 'application/json', ...headers });
+      res.end(body);
+    });
   });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

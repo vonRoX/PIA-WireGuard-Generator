@@ -25,6 +25,27 @@ All notable changes to this project are documented here. The format follows
   `--probe-write` additionally writes one row back byte-identical, which is the only way to learn
   whether a credential authorises a write without changing anything.
 
+### Changed
+
+- The UniFi sync moved from `scripts/unifi-sync/sync.mjs` to `resources/js/core/unifi-sync.js`, so
+  the desktop app can use the same code rather than growing a second copy of it. Only
+  `readCredentials`, which speaks in environment variables, stayed with the script; everything else
+  is re-exported, so nothing that imported it has to change. The loop is now built from three steps
+  the app can call separately — `inspectTunnels` (matches configured tunnels to console rows and
+  costs nothing), `prepareTunnel` (registers one key with PIA), `applyTunnel` (writes one row) —
+  and `syncTunnels` accepts an account token it is given instead of always signing in again.
+  Registration and write still interleave one tunnel at a time, and the test suite now asserts that
+  order rather than merely not noticing it.
+- The curl layer can write: `PUT` is emitted as its own fixed line, an unrecognised method is
+  refused rather than silently becoming a `GET`, and a `PUT` sends no `Expect: 100-continue` for a
+  middlebox to stall on. `noproxy` is available for a console on the LAN, but only when the URL's
+  host is genuinely in a private range — a console reached through a corporate proxy keeps using
+  it, and a mistyped address cannot carry an API key past the proxy that would have refused it.
+- `HttpClient.send()` is now built on `sendExpectingAnyStatus()`, which returns a non-2xx response
+  instead of throwing. A UniFi console explains its refusals in the body of a 401, and `send()`
+  discarded exactly that. Callers must inspect `status` first, and a guard test keeps the list of
+  them short.
+
 ### Fixed
 
 - `docs/wiki/features/UniFi_Automation.md` claimed `--dry-run` would show immediately whether an
