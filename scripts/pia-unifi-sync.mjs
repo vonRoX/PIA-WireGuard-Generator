@@ -156,7 +156,8 @@ async function main() {
         }
       }
 
-      for (const line of formatDiagnosis({ certificate, certificateError, read, writes })) {
+      const tunnels = config.tunnels.map((tunnel) => tunnel.network);
+      for (const line of formatDiagnosis({ certificate, certificateError, read, writes, tunnels })) {
         process.stdout.write(`${line}\n`);
       }
       return 0;

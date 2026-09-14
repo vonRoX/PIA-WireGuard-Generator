@@ -27,6 +27,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `--diagnose` now describes each configured VPN Client **field by field** — names always, values
+  only for the few short flags that decide how a row must be written, and every secret as
+  `present`, `absent` or `looks redacted`. Ubiquiti publishes no schema for `networkconf`, so
+  looking at a real row is the only way to know what a given console returns.
+- **The sync refuses to write a row carrying a masked secret, and so does `--probe-write`.** Some
+  Network builds return a run of asterisks where a stored key belongs, so that reading a row does
+  not disclose it. Anything that reads a row and writes it back then stores the mask over the real
+  key; for a preshared key the tunnel stops handshaking and the reply says the write succeeded.
+  (Reported against another tool as `ubiquiti-community/terraform-provider-unifi#490`.) A row that
+  declares a preshared key but carries none is refused for the same reason. The private key is
+  exempt — a refresh replaces it outright.
 - The UniFi sync moved from `scripts/unifi-sync/sync.mjs` to `resources/js/core/unifi-sync.js`, so
   the desktop app can use the same code rather than growing a second copy of it. Only
   `readCredentials`, which speaks in environment variables, stayed with the script; everything else
@@ -48,6 +59,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `docs/wiki/features/UniFi_Automation.md` stated as fact that "registering a second key against
+  the same server with the same account token can invalidate the first". The source scopes that
+  far more narrowly — same endpoint **and** same token **and** concurrent registration, hedged as
+  "probably only an issue if" — and PIA documents nothing about key lifetime at all. The page now
+  quotes what the source actually says, names it, and says plainly that PIA is silent. It also now
+  states outright that the `networkconf` endpoint is unsupported by Ubiquiti and that no supported
+  alternative exists, and suggests trying `PersistentKeepalive` before automating anything.
 - `docs/wiki/features/UniFi_Automation.md` claimed `--dry-run` would show immediately whether an
   API key is accepted on the `networkconf` route. It cannot: a dry run never issues the write.
   The page now points at `--diagnose --probe-write`, which does.

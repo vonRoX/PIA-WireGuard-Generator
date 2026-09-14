@@ -39,6 +39,23 @@ export const REQUIRED_FIELDS = Object.freeze([
 const SECRET_FIELDS = new Set(['x_wireguard_private_key', 'wireguard_client_preshared_key', 'wireguard_client_configuration_file']);
 
 /**
+ * A value that is a mask rather than a secret.
+ *
+ * Some Network builds return a fixed run of asterisks where a stored secret
+ * belongs, so that reading a row does not disclose it. That is good practice
+ * and a trap for anything that round-trips the row: send the mask back and the
+ * controller stores the mask, which for a preshared key means the tunnel stops
+ * handshaking, with nothing in the reply to say so. Reported upstream against
+ * another tool as ubiquiti-community/terraform-provider-unifi#490.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function looksRedacted(value) {
+  return typeof value === 'string' && value !== '' && /^[*\u2022.\s]+$/.test(value);
+}
+
+/**
  * @typedef {object} TunnelSpec
  * @property {string} network name of the VPN Client in the UniFi console, exactly as shown
  * @property {string} region  PIA region id, e.g. `czech` or `us_east`
@@ -166,6 +183,21 @@ export function patchWireGuardClient(entry, { keys, peer, config, regionId }) {
       { detail: `missing: ${missing.join(', ')}; present: ${Object.keys(entry).sort().join(', ')}` });
   }
 
+  // Everything not listed below is carried over from the row as it was read.
+  // That is only safe while the row holds real values: a secret the console
+  // masked on read would be written back as the mask, replacing the real one.
+  // The private key is exempt because it is replaced outright a few lines down.
+  const masked = [...SECRET_FIELDS]
+    .filter((field) => field !== 'x_wireguard_private_key' && looksRedacted(entry[field]));
+
+  if (masked.length > 0) {
+    throw new AppError(ErrorCode.PROTOCOL,
+      `The console returned ${masked.join(', ')} masked rather than in full, so this row cannot be written ` +
+      'back without replacing the real value with the mask. The tunnel was left untouched. Clear the ' +
+      'setting in the console, or configure the tunnel without it.',
+      { detail: `masked on read: ${masked.join(', ')}` });
+  }
+
   const next = {
     ...entry,
     x_wireguard_private_key: keys.privateKey,
@@ -178,6 +210,16 @@ export function patchWireGuardClient(entry, { keys, peer, config, regionId }) {
   // The console derives the public key itself, but some builds store it too;
   // keep whatever is there consistent with the new private key.
   if ('wireguard_public_key' in entry) next.wireguard_public_key = keys.publicKey;
+
+  // A row that says it uses a preshared key but does not carry one is the same
+  // hazard wearing different clothes: writing it back drops the key.
+  if (entry.wireguard_client_preshared_key_enabled === true &&
+      typeof entry.wireguard_client_preshared_key !== 'string') {
+    throw new AppError(ErrorCode.PROTOCOL,
+      'This VPN Client uses a preshared key, but the console did not return one, so writing the row back ' +
+      'would remove it and the tunnel would stop connecting. The tunnel was left untouched.',
+      { detail: 'wireguard_client_preshared_key_enabled is true with no wireguard_client_preshared_key' });
+  }
 
   // Rows created by uploading a `.conf` keep the file alongside the parsed
   // fields. Replace it so the UI never shows a file that disagrees with the
