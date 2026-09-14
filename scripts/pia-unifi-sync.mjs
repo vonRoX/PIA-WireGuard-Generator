@@ -27,7 +27,7 @@ import { curlExec } from './unifi-sync/exec.mjs';
 import { nodeCrypto } from './unifi-sync/crypto.mjs';
 import { UnifiClient, trustFromPem } from './unifi-sync/unifi.mjs';
 import { loadSyncConfig, readCredentials, syncTunnels } from './unifi-sync/sync.mjs';
-import { probeCertificate, probeRead, probeWrite, formatDiagnosis } from './unifi-sync/diagnose.mjs';
+import { probeCertificate, probeRead, probeWriteAccess, resolveTunnelRow, formatDiagnosis } from './unifi-sync/diagnose.mjs';
 
 const USAGE = `Usage: node scripts/pia-unifi-sync.mjs --config <file> [--dry-run | --list-regions | --list-networks | --diagnose]
 
@@ -118,13 +118,14 @@ async function main() {
 
     const credentials = readCredentials(process.env, (path) => readFileSync(path, 'utf8'));
 
-    const unifi = new UnifiClient({
+    const clientOptions = {
       url: config.unifi.url,
       site: config.unifi.site,
       selfHosted: config.unifi.selfHosted,
       trust: config.unifi.certificate ? trustFromPem(readFileSync(config.unifi.certificate, 'utf8')) : null,
       apiKey: credentials.unifiApiKey,
-    });
+    };
+    const unifi = new UnifiClient(clientOptions);
 
     if (!credentials.unifiApiKey) {
       log(`Signing in to ${config.unifi.url}…`);
@@ -144,14 +145,17 @@ async function main() {
 
       let writes;
       if (options.probeWrite) {
+        // With an API key, a client that has sent nothing can write too — which
+        // is exactly what tells a cookie that is set apart from one that is needed.
+        const fresh = credentials.unifiApiKey ? () => new UnifiClient(clientOptions) : null;
         writes = [];
         for (const tunnel of config.tunnels) {
-          const row = read.rows.find((candidate) => candidate && candidate.name === tunnel.network);
+          const { row, error } = resolveTunnelRow(read.rows, tunnel.network);
           writes.push({
             name: tunnel.network,
             result: row
-              ? await probeWrite(unifi, row)
-              : { ok: false, error: new AppError('INVALID_INPUT', 'No row with that name was returned by the console.') },
+              ? await probeWriteAccess({ session: unifi, fresh, row })
+              : { refused: error, withoutSession: null, withSession: null },
           });
         }
       }

@@ -276,6 +276,21 @@ describe('a secret the console masked on read', () => {
     );
   });
 
+  test('a preshared key hidden by blanking or a placeholder is refused, not written back', () => {
+    for (const hidden of ['', 'xxxx', 'REDACTED', '<hidden>', 'A'.repeat(43), {}]) {
+      const entry = vpnClientRow({
+        wireguard_client_preshared_key_enabled: true,
+        wireguard_client_preshared_key: hidden,
+      });
+
+      assert.throws(
+        () => patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' }),
+        (err) => err instanceof AppError && /would remove it/.test(err.message),
+        `${JSON.stringify(hidden)} must not be carried over as though it were a key`,
+      );
+    }
+  });
+
   test('a masked private key is fine, because the refresh replaces it outright', () => {
     const entry = vpnClientRow({ x_wireguard_private_key: MASK });
     const next = patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' });

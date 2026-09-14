@@ -19,7 +19,7 @@
  */
 
 import { AppError, ErrorCode } from './errors.js';
-import { generateKeyPair, buildConfig, configFileName } from './wireguard.js';
+import { generateKeyPair, buildConfig, configFileName, isBase64Key } from './wireguard.js';
 import { findRegionById, pickServer } from './serverlist.js';
 import { resolveDns, CUSTOM_DNS, DEFAULT_DNS } from './dns.js';
 
@@ -212,13 +212,16 @@ export function patchWireGuardClient(entry, { keys, peer, config, regionId }) {
   if ('wireguard_public_key' in entry) next.wireguard_public_key = keys.publicKey;
 
   // A row that says it uses a preshared key but does not carry one is the same
-  // hazard wearing different clothes: writing it back drops the key.
+  // hazard wearing different clothes: writing it back drops the key. "Carry"
+  // means a real key — a console that hides the value by blanking it, or by
+  // substituting a placeholder the mask check above does not recognise, is
+  // caught here, because neither is shaped like a WireGuard key.
   if (entry.wireguard_client_preshared_key_enabled === true &&
-      typeof entry.wireguard_client_preshared_key !== 'string') {
+      !isBase64Key(entry.wireguard_client_preshared_key)) {
     throw new AppError(ErrorCode.PROTOCOL,
       'This VPN Client uses a preshared key, but the console did not return one, so writing the row back ' +
       'would remove it and the tunnel would stop connecting. The tunnel was left untouched.',
-      { detail: 'wireguard_client_preshared_key_enabled is true with no wireguard_client_preshared_key' });
+      { detail: 'wireguard_client_preshared_key_enabled is true with no valid wireguard_client_preshared_key' });
   }
 
   // Rows created by uploading a `.conf` keep the file alongside the parsed
