@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
   session cookie was set, whether a CSRF token was derived. Header names only; never a value.
   `--probe-write` additionally writes one row back byte-identical, which is the only way to learn
   whether a credential authorises a write without changing anything.
+- `docs/HANDOVER.md`, a one-page brief for a session started on the machine that can actually
+  reach the console: what is settled, the single run that answers what is not, how to read its
+  verdict, and the constraints that hold whatever it says.
 
 ### Changed
 
@@ -58,6 +61,12 @@ All notable changes to this project are documented here. The format follows
   them short.
 
 ### Fixed
+
+- `--diagnose` no longer reports a self-signed **leaf** certificate as something that blocks the
+  desktop app. It was written before the question was settled; the `windows-latest` CI leg has
+  since proven that genuine Schannel accepts a `CA:FALSE` leaf as its own trust anchor when it is
+  the whole `cacert` store. A factory console presents exactly that, so the report would have
+  raised a false blocker on the one machine the report exists to run on.
 
 - `docs/wiki/features/UniFi_Automation.md` stated as fact that "registering a second key against
   the same server with the same account token can invalidate the first". The source scopes that

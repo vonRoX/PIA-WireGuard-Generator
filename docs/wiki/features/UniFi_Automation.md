@@ -252,9 +252,10 @@ small. `test/unifi-sync.test.js` asserts that ordering.
 
 The PIA side is the app's own `HttpClient` and `PiaClient`, so PIA requests are pinned to the
 bundled CA and `addKey` replies are validated before anything is written, exactly as in the app.
-The UniFi side uses `node:https` directly: it needs cookies and `PUT`, which the curl config path
-was never built for, and a LAN request should not go through whatever proxy curl finds in the
-environment.
+The UniFi side uses `node:https` directly, because it may need to read response headers — a
+console that sets a session cookie on an API-key request has to be followed, and the curl config
+path cannot see a header at all. Whether any console actually does that is the open question
+`--diagnose` exists to answer.
 
 `test/unifi-sync.test.js` runs the whole flow against a fake console over TLS, including the
 pinning cases: the pinned self-signed certificate is accepted whatever it is called, a different

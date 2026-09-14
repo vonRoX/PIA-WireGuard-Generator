@@ -15,9 +15,12 @@
  *      reproduce it.
  *   2. Is the API key accepted for a write, or only for a read? A key good for
  *      GET but not PUT fails only after fresh keys have been registered.
- *   3. Is the console certificate a self-signed *leaf*? Windows curl builds on
- *      Schannel, which may refuse a CA:FALSE certificate as a trust anchor
- *      where OpenSSL accepts it.
+ *   3. What does the console certificate carry — is it self-signed, is it a
+ *      leaf, and under which names? That decides what to pin and what name to
+ *      pin it under. It is no longer a question of *whether* pinning works:
+ *      `test/unifi-pinning.test.js` proves on the `windows-latest` CI leg that
+ *      genuine Schannel accepts a self-signed CA:FALSE leaf as its own trust
+ *      anchor when it is the whole `cacert` store.
  *
  * Nothing here prints a secret: header *names* are listed, never their values,
  * and the write probe sends the row back exactly as it arrived.
@@ -257,7 +260,7 @@ export function formatDiagnosis(findings) {
     lines.push(`  subject      ${certificate.subject}`);
     lines.push(`  issuer       ${certificate.issuer}`);
     lines.push(`  self-signed  ${certificate.selfSigned ? 'yes' : 'no'}`);
-    lines.push(`  CA:TRUE      ${certificate.ca ? 'yes' : 'no'}${certificate.ca === false ? '   <- a leaf; Windows curl may refuse it as a trust anchor' : ''}`);
+    lines.push(`  CA:TRUE      ${certificate.ca ? 'yes' : 'no'}${certificate.ca === false ? '   <- a leaf, which is normal for a factory console and is pinnable' : ''}`);
     lines.push(`  names        ${certificate.names}`);
     lines.push(`  sha256       ${certificate.fingerprint}`);
   }
@@ -312,9 +315,6 @@ export function formatDiagnosis(findings) {
   }
   if (writes && writes.some(({ result }) => !result.ok)) {
     blockers.push('the credential does not authorise a write');
-  }
-  if (certificate && certificate.ca === false) {
-    blockers.push('the certificate is a self-signed leaf, which Windows curl may refuse to pin against');
   }
   for (const { name, described: detail } of described) {
     if (!detail) continue;
