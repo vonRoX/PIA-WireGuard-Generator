@@ -236,23 +236,39 @@ describe('the console diagnosis', () => {
       assert.match(report, /does not authorise a write/);
     });
 
-    it('flags a self-signed leaf, which is the certificate Windows may refuse', () => {
+    it('reports a self-signed leaf without calling it a problem', () => {
       const report = formatDiagnosis({
         certificate: { subject: 'CN=ucg', issuer: 'CN=ucg', selfSigned: true, ca: false, names: 'DNS:ucg', fingerprint: 'AA' },
         read: cleanRead,
       }).join('\n');
 
       assert.match(report, /CA:TRUE\s+no/);
-      assert.match(report, /self-signed leaf/);
+      assert.match(report, /normal for a factory console/);
+
+      // The shape a UCG Ultra presents. Windows CI settled that Schannel pins
+      // it happily (test/unifi-pinning.test.js), so a report that stopped the
+      // port over it would be stopping over nothing.
+      assert.match(report, /Nothing here blocks the port/);
     });
 
-    it('does not flag a self-signed certificate that is a usable anchor', () => {
+    it('does not flag a self-signed certificate that is its own authority', () => {
       const report = formatDiagnosis({
         certificate: { subject: 'CN=ucg', issuer: 'CN=ucg', selfSigned: true, ca: true, names: 'DNS:ucg', fingerprint: 'AA' },
         read: cleanRead,
       }).join('\n');
 
-      assert.doesNotMatch(report, /self-signed leaf/);
+      assert.match(report, /CA:TRUE\s+yes/);
+      assert.match(report, /Nothing here blocks the port/);
+    });
+
+    it('still blocks on a leaf when something else is actually wrong', () => {
+      const report = formatDiagnosis({
+        certificate: { subject: 'CN=ucg', issuer: 'CN=ucg', selfSigned: true, ca: false, names: 'DNS:ucg', fingerprint: 'AA' },
+        read: { ...cleanRead, setCookie: true },
+      }).join('\n');
+
+      assert.match(report, /the console sets a cookie/);
+      assert.doesNotMatch(report, /Nothing here blocks the port/);
     });
 
     it('reports a certificate that could not be read without losing the rest', () => {
