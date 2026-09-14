@@ -179,6 +179,10 @@ export const POWERSHELL_ARGS = Object.freeze([
 export function powershellExec(file, args, { stdin }) {
   return new Promise((resolve) => {
     const child = execFile(file, args, {
+      // Started from a PowerShell 7 terminal, Node inherits a PSModulePath that
+      // points Windows PowerShell 5.1 at PowerShell 7's modules, and the
+      // SecureString cmdlets then fail to load. Without it, 5.1 rebuilds its own.
+      env: withoutPowerShell7ModulePath(process.env),
       encoding: 'utf8',
       maxBuffer: 1024 * 1024,
       windowsHide: true,
@@ -191,6 +195,18 @@ export function powershellExec(file, args, { stdin }) {
     child.stdin.on('error', () => { /* exited early; the exit code tells the story */ });
     child.stdin.end(stdin);
   });
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function withoutPowerShell7ModulePath(env) {
+  const copy = { ...env };
+  for (const name of Object.keys(copy)) {
+    if (name.toLowerCase() === 'psmodulepath') delete copy[name];
+  }
+  return copy;
 }
 
 const MESSAGES = {

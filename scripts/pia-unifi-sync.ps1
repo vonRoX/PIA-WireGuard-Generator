@@ -151,10 +151,23 @@ if (-not (Test-Path -LiteralPath $StoreFile)) {
 
 try {
   $stored = Import-Clixml -LiteralPath $StoreFile
-  $values = @{
-    PIA_USERNAME  = ConvertFrom-Secret $stored.PiaUsername
-    PIA_PASSWORD  = ConvertFrom-Secret $stored.PiaPassword
-    UNIFI_API_KEY = ConvertFrom-Secret $stored.UnifiApiKey
+} catch {
+  Fail 'The stored credentials could not be read. Run with -SetCredentials to store them again.'
+}
+
+# Version 1 always holds all three. Version 2 is what the Workbench writes while
+# onboarding is half done, and holds only the values entered so far — so a
+# missing one is named, not mistaken for a decryption failure.
+$properties = @{ PIA_USERNAME = 'PiaUsername'; PIA_PASSWORD = 'PiaPassword'; UNIFI_API_KEY = 'UnifiApiKey' }
+$missing = @($properties.Keys | Where-Object { -not $stored.PSObject.Properties[$properties[$_]] } | Sort-Object)
+if ($missing.Count -gt 0) {
+  Fail "Stored credentials are incomplete: $($missing -join ', ') not set yet. Finish setup in the Workbench, or run with -SetCredentials."
+}
+
+try {
+  $values = @{}
+  foreach ($name in $properties.Keys) {
+    $values[$name] = ConvertFrom-Secret $stored.PSObject.Properties[$properties[$name]].Value
   }
 } catch {
   # DPAPI refuses to decrypt for a different account or computer. Say that,
