@@ -162,13 +162,17 @@ try {
   Fail 'The stored credentials could not be decrypted. They were saved by a different Windows account or on another computer. Run with -SetCredentials to store them again.'
 }
 
-# No arguments: dry run. --apply: the real thing. Anything else: passed through.
-if (-not $SyncArguments -or $SyncArguments.Count -eq 0) {
-  $nodeArguments = @('--dry-run')
-} elseif ($SyncArguments.Count -eq 1 -and $SyncArguments[0] -eq '--apply') {
-  $nodeArguments = @()
+# A refresh is a dry run unless --apply is given — including one narrowed with
+# --only, which would otherwise write simply because it had an argument.
+# Commands that never write (listing, diagnosing, help) pass through untouched.
+$given = @($SyncArguments | Where-Object { $_ })
+$readOnly = @('--list-networks', '--list-regions', '--diagnose', '--help', '-h', '--dry-run')
+if ($given -contains '--apply') {
+  $nodeArguments = @($given | Where-Object { $_ -ne '--apply' })
+} elseif (@($given | Where-Object { $readOnly -contains $_ }).Count -gt 0) {
+  $nodeArguments = $given
 } else {
-  $nodeArguments = $SyncArguments
+  $nodeArguments = @('--dry-run') + $given
 }
 
 Write-Host ''

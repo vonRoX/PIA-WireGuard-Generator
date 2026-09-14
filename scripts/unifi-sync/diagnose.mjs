@@ -564,10 +564,6 @@ export function formatDiagnosis(findings) {
     if (detail.missingRequired.length > 0) {
       blockers.push(`"${name}" does not carry ${detail.missingRequired.join(', ')}, so this tool would refuse to write it`);
     }
-    if (isFileMode(row)) {
-      blockers.push(`"${name}" is a file-mode VPN Client (created by uploading a .conf); the sync patches ` +
-        'manual-mode fields and cannot refresh it yet');
-    }
   }
 
   for (const note of notes) lines.push(`  ${note}`);

@@ -150,6 +150,40 @@ PersistentKeepalive = 25
 }
 
 /**
+ * Read a WireGuard configuration file into its sections.
+ *
+ * Deliberately small: enough to tell whether a file someone else stored is the
+ * single-peer shape {@link buildConfig} produces, and to read back the values a
+ * refresh must carry over. Keys are matched case-insensitively, as wg-quick does.
+ *
+ * @param {string} text
+ * @returns {{interface: Record<string,string>|null, peers: Array<Record<string,string>>, unknownSections: string[]}}
+ */
+export function parseConfig(text) {
+  const result = { interface: null, peers: [], unknownSections: [] };
+  let current = null;
+
+  for (const rawLine of String(text || '').split(/\r?\n/)) {
+    const line = rawLine.replace(/[#;].*$/, '').trim();
+    if (!line) continue;
+
+    const section = /^\[([^\]]+)\]$/.exec(line);
+    if (section) {
+      const name = section[1].trim().toLowerCase();
+      if (name === 'interface') current = result.interface = result.interface || {};
+      else if (name === 'peer') result.peers.push(current = {});
+      else { result.unknownSections.push(section[1]); current = null; }
+      continue;
+    }
+
+    const pair = /^([A-Za-z]+)\s*=\s*(.*)$/.exec(line);
+    if (pair && current) current[pair[1].toLowerCase()] = pair[2].trim();
+  }
+
+  return result;
+}
+
+/**
  * Replace the private key with a mask, for on-screen preview.
  *
  * @param {string} config

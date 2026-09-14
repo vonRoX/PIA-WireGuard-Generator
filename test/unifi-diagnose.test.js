@@ -263,7 +263,7 @@ describe('the console diagnosis', () => {
       }
     });
 
-    it('is reported as something the sync cannot refresh yet, never described as missing manual fields', () => {
+    it('is never described as missing manual-mode fields, and does not block the port', () => {
       const report = formatDiagnosis({
         read: { status: 200, headerNames: [], setCookie: false, cookiesHeld: [], csrfToken: 'none', rows: [fileRow()] },
         tunnels: ['WireGuard PIA CZ'],
@@ -272,7 +272,7 @@ describe('the console diagnosis', () => {
       assert.doesNotMatch(report, /missing fields this tool needs/);
       assert.doesNotMatch(report, /x_wireguard_private_key\s+absent\s+<-/);
       assert.match(report, /wireguard_client_configuration_file\s+present/);
-      assert.match(report, /file-mode VPN Client .* cannot refresh it yet/);
+      assert.match(report, /Nothing here blocks the port/);
       assert.doesNotMatch(report, /yAnz5TF/, 'the key inside the file must never be printed');
     });
   });
@@ -688,7 +688,7 @@ describe('the DPAPI launcher', () => {
   });
 
   it('defaults to a dry run and only writes when asked', () => {
-    assert.match(code, /\$nodeArguments = @\('--dry-run'\)/);
-    assert.match(code, /-eq '--apply'/);
+    assert.match(code, /\$nodeArguments = @\('--dry-run'\) \+ \$given/, 'a narrowed refresh (--only) is still a dry run');
+    assert.match(code, /-contains '--apply'/);
   });
 });
