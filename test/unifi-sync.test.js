@@ -243,6 +243,63 @@ describe('UniFi OS session plumbing', () => {
  * its own. Testing them only through `syncTunnels` would leave the seams
  * untested exactly where the app will lean on them.
  */
+/**
+ * A console that hides a secret when you read a row hands back something that
+ * is *not* the row. Writing it back stores the mask in place of the key, the
+ * tunnel silently stops handshaking, and the reply says the write succeeded.
+ * The same thing was reported against a Terraform provider as
+ * ubiquiti-community/terraform-provider-unifi#490.
+ */
+describe('a secret the console masked on read', () => {
+  const MASK = '*'.repeat(44);
+
+  test('a masked preshared key stops the write rather than erasing it', () => {
+    const entry = vpnClientRow({
+      wireguard_client_preshared_key_enabled: true,
+      wireguard_client_preshared_key: MASK,
+    });
+
+    assert.throws(
+      () => patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' }),
+      (err) => err instanceof AppError && err.code === ErrorCode.PROTOCOL &&
+        /masked rather than in full/.test(err.message) &&
+        /wireguard_client_preshared_key/.test(err.detail),
+    );
+  });
+
+  test('a row claiming a preshared key it does not carry is refused too', () => {
+    const entry = vpnClientRow({ wireguard_client_preshared_key_enabled: true });
+
+    assert.throws(
+      () => patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' }),
+      (err) => err instanceof AppError && /would remove it/.test(err.message),
+    );
+  });
+
+  test('a masked private key is fine, because the refresh replaces it outright', () => {
+    const entry = vpnClientRow({ x_wireguard_private_key: MASK });
+    const next = patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' });
+
+    assert.equal(next.x_wireguard_private_key, KEYS.privateKey, 'the mask must not survive');
+  });
+
+  test('a real preshared key is carried over untouched', () => {
+    const real = 'aZ0Ck1FQpjDMkFRZQ2rDBz8xWiXbxHgAqhP9uOnFvj4=';
+    const entry = vpnClientRow({
+      wireguard_client_preshared_key_enabled: true,
+      wireguard_client_preshared_key: real,
+    });
+
+    const next = patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' });
+    assert.equal(next.wireguard_client_preshared_key, real);
+  });
+
+  test('a row with no preshared key at all is unaffected', () => {
+    const next = patchWireGuardClient(vpnClientRow(), { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' });
+    assert.equal(next.wireguard_client_peer_ip, PEER.serverIp);
+  });
+});
+
 describe('the steps a sync is made of', () => {
   const REGIONS = [
     { id: 'czech', name: 'Czech Republic', country: 'CZ', portForward: true, geo: false, servers: [{ ip: '185.216.35.1', cn: 'prague401' }] },

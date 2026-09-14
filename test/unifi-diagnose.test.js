@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 import { AppError, ErrorCode } from '../resources/js/core/errors.js';
-import { probeRead, probeWrite, formatDiagnosis } from '../scripts/unifi-sync/diagnose.mjs';
+import { probeRead, probeWrite, formatDiagnosis, describeRowFields } from '../scripts/unifi-sync/diagnose.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -114,6 +114,15 @@ describe('the console diagnosis', () => {
       assert.deepEqual(unifi.updated.entry, row, 'the probe must not alter the row it writes back');
     });
 
+    it('refuses to write a row whose secret came back masked', async () => {
+      const unifi = fakeClient();
+      const result = await probeWrite(unifi, { _id: 'abc', wireguard_client_preshared_key: '*'.repeat(44) });
+
+      assert.equal(result.ok, false);
+      assert.match(result.error.message, /would replace the real value with the mask/);
+      assert.equal(unifi.updated, undefined, 'and nothing may be sent — that is the point');
+    });
+
     it('reports a refusal instead of throwing, so one row does not end the run', async () => {
       const unifi = fakeClient();
       unifi.updateNetwork = async () => {
@@ -135,6 +144,61 @@ describe('the console diagnosis', () => {
       assert.equal(result.ok, false);
       assert.ok(result.error instanceof AppError);
       assert.match(result.error.message, /write probe failed/i);
+    });
+  });
+
+  describe('describing a row', () => {
+    const row = {
+      _id: 'abc', name: 'WireGuard PIA CZ', purpose: 'vpn-client', vpn_type: 'wireguard-client',
+      enabled: true, ip_subnet: '10.1.2.3/32', wireguard_client_mode: 'manual',
+      wireguard_client_peer_public_key: 'k', wireguard_client_peer_ip: '1.2.3.4',
+      wireguard_client_peer_port: 1337, wireguard_client_preshared_key_enabled: false,
+      x_wireguard_private_key: 'yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=',
+    };
+
+    it('lists field names, because nobody publishes a schema for this', () => {
+      const described = describeRowFields(row);
+
+      assert.ok(described.fields.includes('wireguard_client_peer_port'));
+      assert.deepEqual(described.fields, [...described.fields].sort(), 'sorted, so two consoles can be compared');
+      assert.equal(described.missingRequired.length, 0);
+    });
+
+    it('reveals the flags that decide how a row must be written, and no more', () => {
+      const revealed = Object.fromEntries(describeRowFields(row).revealed);
+
+      assert.equal(revealed.wireguard_client_mode, '"manual"');
+      assert.equal(revealed.wireguard_client_preshared_key_enabled, 'false');
+      assert.ok(!('ip_subnet' in revealed), 'an address is not a flag');
+    });
+
+    it('reports a secret as present without ever carrying its value', () => {
+      const secrets = Object.fromEntries(describeRowFields(row).secrets);
+
+      assert.equal(secrets.x_wireguard_private_key, 'present');
+      assert.doesNotMatch(JSON.stringify(describeRowFields(row)), /yAnz5TF/, 'the key must not appear anywhere');
+    });
+
+    it('tells a mask apart from a key, which is the whole point', () => {
+      const cases = [
+        ['*'.repeat(44), 'looks redacted'],
+        ['••••••••', 'looks redacted'],
+        ['', 'absent'],
+        [undefined, 'absent'],
+        ['yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=', 'present'],
+      ];
+
+      for (const [value, expected] of cases) {
+        const secrets = Object.fromEntries(describeRowFields({ ...row, x_wireguard_private_key: value }).secrets);
+        assert.equal(secrets.x_wireguard_private_key, expected, `${JSON.stringify(value)} should read as ${expected}`);
+      }
+    });
+
+    it('names the fields the sync needs but the row does not have', () => {
+      const without = { ...row };
+      delete without.wireguard_client_peer_port;
+
+      assert.deepEqual(describeRowFields(without).missingRequired, ['wireguard_client_peer_port']);
     });
   });
 
@@ -199,6 +263,38 @@ describe('the console diagnosis', () => {
 
       assert.match(report, /could not be read: Could not reach the console/);
       assert.match(report, /Read \(GET rest\/networkconf\)/);
+    });
+
+    it('describes each configured row, and says which are missing', () => {
+      const report = formatDiagnosis({
+        read: {
+          ...cleanRead,
+          rows: [{ _id: 'a', name: 'WireGuard PIA CZ', purpose: 'vpn-client', wireguard_client_mode: 'file' }],
+        },
+        tunnels: ['WireGuard PIA CZ', 'WireGuard US East'],
+      }).join('\n');
+
+      assert.match(report, /Row "WireGuard PIA CZ"/);
+      assert.match(report, /wireguard_client_mode\s+"file"/);
+      assert.match(report, /Row "WireGuard US East"\n\s+the console returned no row with this name/);
+      assert.match(report, /missing fields this tool needs:/, 'that row carries none of them');
+    });
+
+    it('a masked preshared key is a blocker; a masked private key is not', () => {
+      const base = { _id: 'a', name: 'CZ', purpose: 'vpn-client' };
+
+      const privateOnly = formatDiagnosis({
+        read: { ...cleanRead, rows: [{ ...base, x_wireguard_private_key: '****' }] },
+        tunnels: ['CZ'],
+      }).join('\n');
+      assert.match(privateOnly, /a real refresh replaces this field/);
+
+      const preshared = formatDiagnosis({
+        read: { ...cleanRead, rows: [{ ...base, wireguard_client_preshared_key: '****' }] },
+        tunnels: ['CZ'],
+      }).join('\n');
+      assert.match(preshared, /a refresh would erase it/);
+      assert.match(preshared, /masks wireguard_client_preshared_key on read/);
     });
 
     it('lists header names but never header values', () => {

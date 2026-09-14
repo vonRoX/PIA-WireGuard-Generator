@@ -18,16 +18,68 @@ or a self-hosted Network application). Run it from a timer and the tunnels stop 
 ## Why the tunnels keep dying
 
 A PIA WireGuard registration is not a credential you hold; it is a row in a server's peer table
-that exists only while the peer keeps talking. Community operators of PIA's own scripts report
-that a registered key is dropped after some hours without a handshake, and that registering a
-second key against the same server with the same account token can invalidate the first. So a
-gateway reboot, a firmware update, or a WAN outage that outlasts `PersistentKeepalive` leaves the
+that exists only while the peer keeps talking. **PIA documents none of this.** Their own
+[`manual-connections`](https://github.com/pia-foss/manual-connections) scripts document the auth
+token's expiry and the port-forward signature's two months, and say nothing at all about how long
+a key registration lives.
+
+What is known comes from community operators, and is worth quoting accurately rather than in the
+form it usually gets repeated:
+
+- **Idle expiry.** [`thrnz/docker-wireguard-pia`](https://github.com/thrnz/docker-wireguard-pia),
+  the most widely used PIA WireGuard container, reports that keys "seem to expire at PIA's end
+  after several hours of inactivity" and that setting `PersistentKeepalive` "may be enough to
+  prevent this from happening". Note the hedging — this is observed behaviour, not a specification.
+- **A second key displacing the first.** This one is usually repeated as a flat rule, and it is
+  not. The source scopes it to a three-way coincidence: a second key registered *to the same
+  endpoint address* *using the same auth token*, which "in practice is probably only an issue if
+  multiple containers share the same auth token, and if they also happen to pick the same vpn
+  endpoint". Two tunnels in different regions do not meet that condition.
+
+So a gateway reboot, a firmware update, or a WAN outage that outlasts the keepalive leaves the
 console showing **Not Established** until someone generates a new configuration and pastes it in.
 The account token itself lasts about a day, which is why the generator has to sign in again
 rather than reuse one.
 
-Nothing about that changes; the script just makes the round trip cheap enough to run on a
-schedule.
+### Try a keepalive before you automate anything
+
+Since the documented cause is *inactivity*, the cheapest fix is to stop the tunnel going idle.
+If your VPN Client was created by uploading a `.conf`, check that it carries
+`PersistentKeepalive = 25` under `[Peer]`. That costs nothing, needs no script, and every refresh
+it avoids is a refresh that cannot go wrong.
+
+It may not be available: the `networkconf` row a console returns has no keepalive field of its
+own, so on a tunnel configured by hand in the UI there may be nothing to set. `--diagnose` lists
+the fields your console actually returns, which will tell you either way.
+
+## This API is not supported by Ubiquiti, and there is no alternative
+
+Worth stating plainly before anything else. The script drives
+`/proxy/network/api/s/<site>/rest/networkconf` — the console's **private** API, the one its own
+web UI calls. Ubiquiti publishes no schema for it, does not version it, and promises nothing
+about it. The maintainers of the longest-running client for it
+([`Art-of-WiFi/UniFi-API-client`](https://github.com/Art-of-WiFi/UniFi-API-client)) put a
+disclaimer at the top of their README saying exactly that.
+
+This is not a shortcut around a supported path. There isn't one:
+
+- **The official UniFi Network Integration API** (`/proxy/network/integration/v1`) cannot do it.
+  From Network 10.0 it gained real CRUD for networks, firewall policies, DNS and ACLs — but its
+  "network" object is a VLAN: name, `vlanId`, subnet, DHCP. No `purpose`, no `vpn_type`, no
+  WireGuard field. Its only VPN surface is read-only, and lists VPN *servers*, not clients. On
+  Network 9.x it cannot touch network configuration at all.
+- **The Site Manager API** (`api.ui.com`) is read-only — inventory, sites, ISP metrics.
+- **There is no official CLI, config file, Ansible collection or Terraform provider.**
+- Every community tool that *can* configure WireGuard on a UniFi gateway — the Terraform
+  providers, the PHP clients — uses this same private endpoint. The providers built on the
+  official API are structurally incapable of it.
+
+**What this means in practice.** The path itself has been stable for years. What breaks is
+payload validation: a firmware update changes a field's name or type, and writes start failing
+with `400 api.err.*`. That is a loud failure, not a silent one, and this tool is built to stop
+rather than guess — it refuses to write a row missing the fields it knows, and prints what it
+found instead. If a Network update ever breaks it, expect a clear refusal and an unchanged
+gateway, not a mangled tunnel.
 
 ## What it touches in UniFi
 
@@ -52,6 +104,14 @@ per tunnel, so schedule the run for a quiet hour.
 If a row lacks the fields above the script refuses to write it and prints the fields it did find;
 Ubiquiti publishes no schema for this API, and guessing at one is how a tunnel ends up silently
 misconfigured.
+
+It also refuses when the console returns a **masked** secret — a run of asterisks where a stored
+key belongs. Some builds do that so reading a row does not disclose it, which is good practice and
+a trap for anything that reads a row and writes it back: send the mask and the console stores the
+mask. For a preshared key that means the tunnel stops handshaking and nothing in the reply says
+so. The same bug was reported against a Terraform provider as
+[`ubiquiti-community/terraform-provider-unifi#490`](https://github.com/ubiquiti-community/terraform-provider-unifi/issues/490).
+The private key is exempt, because a refresh replaces it outright.
 
 ## Setting it up
 
@@ -153,10 +213,20 @@ what names it carries — then performs the same read the sync performs and repo
 that a curl-based client would not be able to see: response header names, whether a session cookie
 was set, and whether a CSRF token was picked up. Header *names* only; no value is ever printed.
 
+It then describes each VPN Client the configuration names, **field by field** — which is the only
+way to learn what your particular console puts in a row, since no schema is published. Field names
+are always listed; values only for the few short flags that decide how a row must be written
+(`wireguard_client_mode`, whether a preshared key is enabled, DNS pulling, default route). Every
+secret is reported as `present`, `absent` or `looks redacted`, never shown.
+
 Add `--probe-write` to also write each configured row back **unchanged**. That is the only honest
 way to learn whether your credential authorises a write without changing anything: the body is
 byte-identical to what the console just sent, so the gateway re-provisions the tunnel briefly but
 its configuration does not change.
+
+Unless a secret came back masked — then "byte-identical" would be a lie, and writing the row back
+would store the mask over the real key. The probe checks first and refuses, reporting why. That
+refusal is itself the finding: it means no tool can safely round-trip that row.
 
 ## How the pieces fit
 
