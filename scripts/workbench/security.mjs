@@ -34,6 +34,7 @@ export const CONTENT_TYPES = Object.freeze({
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.woff2': 'font/woff2',
 });
 
 /** 32 random bytes, base64url: the shape the contract prescribes for the token and the session id. */
