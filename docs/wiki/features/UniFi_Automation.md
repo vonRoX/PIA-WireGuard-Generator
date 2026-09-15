@@ -200,6 +200,28 @@ Credentials travel in the environment, never on the command line, so they do not
 window title, the scroll buffer, or another user's process list. The launcher refuses to start
 with a clear message if Node is missing or either file is absent.
 
+### From Windows, without a plaintext credentials file
+
+`scripts\pia-unifi-sync.ps1` does the same job with the credentials encrypted by **DPAPI** for your
+Windows account instead of sitting in `pia-unifi-sync.env`:
+
+```
+powershell -File scripts\pia-unifi-sync.ps1 -SetCredentials
+powershell -File scripts\pia-unifi-sync.ps1 --list-networks
+powershell -File scripts\pia-unifi-sync.ps1 --apply
+```
+
+`-SetCredentials` prompts for the PIA username, PIA password and UniFi API key (nothing typed is
+echoed) and stores them in `%LOCALAPPDATA%\pia-unifi-sync\credentials.xml`, in a folder only your
+account can open. Arguments behave exactly as they do for the `.cmd`: none is a dry run, `--apply`
+writes, anything else is passed through. `-ForgetCredentials` deletes the store.
+
+What it buys over the `.env`: nothing in the repository to commit by accident or lose with a
+checkout; a copied file, a backup, another account or a pulled disk cannot decrypt it; and a
+password containing `"` works. What it does not buy: a program already running as you can decrypt
+it, just as it could read a file you own. The API key is a site-admin credential either way —
+revoke it in the console when you are done with it.
+
 ### Finding out what your console actually does
 
 `--diagnose` reports the three facts that decide whether this can work, and how:
@@ -217,16 +239,28 @@ It then describes each VPN Client the configuration names, **field by field** �
 way to learn what your particular console puts in a row, since no schema is published. Field names
 are always listed; values only for the few short flags that decide how a row must be written
 (`wireguard_client_mode`, whether a preshared key is enabled, DNS pulling, default route). Every
-secret is reported as `present`, `absent` or `looks redacted`, never shown.
+secret — the WireGuard keys, the configuration file, and any `x_` field — is reported as
+`present`, `absent`, `blank`, `looks redacted` or `not a key`, never shown. A tunnel name that
+matches a network which is not a WireGuard VPN Client is reported, not described.
 
 Add `--probe-write` to also write each configured row back **unchanged**. That is the only honest
 way to learn whether your credential authorises a write without changing anything: the body is
 byte-identical to what the console just sent, so the gateway re-provisions the tunnel briefly but
 its configuration does not change.
 
-Unless a secret came back masked — then "byte-identical" would be a lie, and writing the row back
-would store the mask over the real key. The probe checks first and refuses, reporting why. That
-refusal is itself the finding: it means no tool can safely round-trip that row.
+The first write comes from a client that has sent **nothing** — its PUT is its first request, so it
+carries no cookie or CSRF token. A write made after the read would replay whatever the read was
+handed, and so could not tell a cookie the console sets from one it requires. Only if that bare
+write is refused on authorisation, and the read did leave a session behind, is the write repeated
+with it. The report lists both, and the verdict follows the difference: a cookie that is set but
+not needed does not block the desktop app; a write accepted only with the cookie does. With a
+password sign-in there is no bare client to try, and the report says the question stays open.
+
+Unless the row is not safe to round-trip — then "byte-identical" would be a lie. A private key
+that is not a real key, a preshared key that is masked (or missing while in use), any `x_` field
+that came back masked or blank, or a row missing the fields the sync needs: writing it back could
+store a mask or a blank over the real value. The probe checks first and refuses, reporting which
+field. That refusal is itself the finding: it means no tool can safely round-trip that row.
 
 ## How the pieces fit
 

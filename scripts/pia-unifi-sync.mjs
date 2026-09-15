@@ -27,7 +27,7 @@ import { curlExec } from './unifi-sync/exec.mjs';
 import { nodeCrypto } from './unifi-sync/crypto.mjs';
 import { UnifiClient, trustFromPem } from './unifi-sync/unifi.mjs';
 import { loadSyncConfig, readCredentials, syncTunnels } from './unifi-sync/sync.mjs';
-import { probeCertificate, probeRead, probeWrite, formatDiagnosis } from './unifi-sync/diagnose.mjs';
+import { probeCertificate, probeRead, probeWriteAccess, resolveTunnelRow, formatDiagnosis } from './unifi-sync/diagnose.mjs';
 
 const USAGE = `Usage: node scripts/pia-unifi-sync.mjs --config <file> [--dry-run | --list-regions | --list-networks | --diagnose]
 
@@ -41,6 +41,8 @@ const USAGE = `Usage: node scripts/pia-unifi-sync.mjs --config <file> [--dry-run
                      unchanged, to learn whether the credential authorises a
                      write. Byte-identical, so the tunnel re-provisions but its
                      configuration does not change.
+  --only <name>      refresh only the tunnel with this VPN Client name (repeatable)
+  --no-wait          after writing, do not watch the console until the tunnels connect
   --quiet            only print failures
 
 Environment: PIA_USERNAME, PIA_PASSWORD, and UNIFI_API_KEY or UNIFI_USERNAME + UNIFI_PASSWORD.
@@ -50,7 +52,7 @@ Any of them may instead be given as <NAME>_FILE, naming a file that holds the va
 function parseArgs(argv) {
   const options = {
     config: '', dryRun: false, listRegions: false, listNetworks: false,
-    diagnose: false, probeWrite: false, quiet: false, help: false,
+    diagnose: false, probeWrite: false, quiet: false, help: false, only: [], wait: true,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -61,6 +63,8 @@ function parseArgs(argv) {
     else if (arg === '--list-networks') options.listNetworks = true;
     else if (arg === '--diagnose') options.diagnose = true;
     else if (arg === '--probe-write') options.probeWrite = true;
+    else if (arg === '--only') options.only.push(argv[++i] || '');
+    else if (arg === '--no-wait') options.wait = false;
     else if (arg === '--quiet' || arg === '-q') options.quiet = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new AppError('INVALID_INPUT', `Unknown argument: ${arg}`);
@@ -78,6 +82,49 @@ function materialiseCa() {
   const path = join(dir, 'pia-ca.crt');
   writeFileSync(path, PIA_CA_PEM, { mode: 0o600 });
   return { path, remove: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/**
+ * Watch the console until every tunnel just written reports connected, or give
+ * up after a while. A write the console accepted is not yet a tunnel that
+ * works; this is the difference, reported rather than assumed.
+ *
+ * Only `CONNECTING` has been observed on a real console, so anything that is
+ * neither connecting nor an obvious failure is treated as connected — and the
+ * raw status is always printed so a wrong guess is visible.
+ *
+ * @returns {Promise<boolean>} whether every tunnel ended up connected
+ */
+async function waitForTunnels({ unifi, results, log, timeoutMs = 120_000, intervalMs = 5_000 }) {
+  const rows = await unifi.listNetworks();
+  const idOf = new Map(rows.filter((r) => r && r.vpn_type === 'wireguard-client').map((r) => [r.name, r._id]));
+  const pending = new Map(results.filter((r) => r.ok && idOf.has(r.network)).map((r) => [idOf.get(r.network), r.network]));
+  const last = new Map();
+  const deadline = Date.now() + timeoutMs;
+
+  log(`Waiting up to ${timeoutMs / 1000}s for the gateway to connect…`);
+  while (pending.size > 0 && Date.now() < deadline) {
+    await new Promise((done) => setTimeout(done, intervalMs));
+    let connections;
+    try {
+      connections = await unifi.vpnConnections();
+    } catch (err) {
+      log(`  could not read tunnel status: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    for (const [id, name] of [...pending]) {
+      const state = connections.get(id) || { status: 'UNKNOWN', notes: [] };
+      const text = `${state.status}${state.notes.length ? ` (${state.notes.join(', ')})` : ''}`;
+      if (last.get(id) !== text) log(`  ${name}: ${text}`);
+      last.set(id, text);
+      if (!/CONNECTING|UNKNOWN|PENDING|DISCONNECTED|ERROR|FAIL|DOWN/i.test(state.status)) pending.delete(id);
+    }
+  }
+
+  for (const [id, name] of pending) {
+    process.stderr.write(`not connected: ${name} — still ${last.get(id) || 'UNKNOWN'} after ${timeoutMs / 1000}s\n`);
+  }
+  return pending.size === 0;
 }
 
 function printError(err) {
@@ -100,6 +147,13 @@ async function main() {
     JSON.parse(readFileSync(configPath, 'utf8')),
     (relative) => resolve(dirname(configPath), relative),
   );
+  if (options.only.length > 0) {
+    const unknown = options.only.filter((name) => !config.tunnels.some((tunnel) => tunnel.network === name));
+    if (unknown.length > 0) {
+      throw new AppError('INVALID_INPUT', `--only names a tunnel the configuration does not list: ${unknown.map((n) => `"${n}"`).join(', ')}`);
+    }
+    config.tunnels = config.tunnels.filter((tunnel) => options.only.includes(tunnel.network));
+  }
   const http = new HttpClient(curlExec, { tolerateUnknownRevocation: process.platform === 'win32' });
   await http.preflight();
 
@@ -118,13 +172,14 @@ async function main() {
 
     const credentials = readCredentials(process.env, (path) => readFileSync(path, 'utf8'));
 
-    const unifi = new UnifiClient({
+    const clientOptions = {
       url: config.unifi.url,
       site: config.unifi.site,
       selfHosted: config.unifi.selfHosted,
       trust: config.unifi.certificate ? trustFromPem(readFileSync(config.unifi.certificate, 'utf8')) : null,
       apiKey: credentials.unifiApiKey,
-    });
+    };
+    const unifi = new UnifiClient(clientOptions);
 
     if (!credentials.unifiApiKey) {
       log(`Signing in to ${config.unifi.url}…`);
@@ -144,14 +199,17 @@ async function main() {
 
       let writes;
       if (options.probeWrite) {
+        // With an API key, a client that has sent nothing can write too — which
+        // is exactly what tells a cookie that is set apart from one that is needed.
+        const fresh = credentials.unifiApiKey ? () => new UnifiClient(clientOptions) : null;
         writes = [];
         for (const tunnel of config.tunnels) {
-          const row = read.rows.find((candidate) => candidate && candidate.name === tunnel.network);
+          const { row, error } = resolveTunnelRow(read.rows, tunnel.network);
           writes.push({
             name: tunnel.network,
             result: row
-              ? await probeWrite(unifi, row)
-              : { ok: false, error: new AppError('INVALID_INPUT', 'No row with that name was returned by the console.') },
+              ? await probeWriteAccess({ session: unifi, fresh, row })
+              : { refused: error, withoutSession: null, withSession: null },
           });
         }
       }
@@ -189,6 +247,11 @@ async function main() {
         process.stderr.write(`failed: ${result.network} — ${result.error.message}\n`);
         if (result.error.detail) process.stderr.write(`    ${result.error.detail}\n`);
       }
+    }
+
+    if (!options.dryRun && options.wait && results.some((result) => result.ok)) {
+      const settled = await waitForTunnels({ unifi, results, log });
+      if (!settled) failed++;
     }
 
     return failed === 0 ? 0 : 1;

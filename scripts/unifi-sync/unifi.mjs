@@ -186,6 +186,36 @@ export class UnifiClient {
   }
 
   /**
+   * What the gateway says about each VPN Client's connection, keyed by row id.
+   *
+   * The v2 endpoint the console's own UI polls. It is not wrapped in the
+   * `{meta, data}` envelope. Observed statuses include `CONNECTING` with the
+   * note `CONNECTING_LONGER_THAN_USUAL`.
+   *
+   * @returns {Promise<Map<string, {status: string, notes: string[]}>>}
+   */
+  async vpnConnections() {
+    const base = this.selfHosted ? '/v2/api' : '/proxy/network/v2/api';
+    const path = `${base}/site/${encodeURIComponent(this.site)}/vpn/connections`;
+    const response = await this.send({ method: 'GET', path, authenticated: true });
+    if (response.status === 401 || response.status === 403) {
+      throw new AppError(ErrorCode.AUTH, 'The UniFi console refused the status request.', { detail: `HTTP ${response.status} GET ${path}` });
+    }
+    let payload;
+    try {
+      payload = JSON.parse(response.body);
+    } catch (err) {
+      throw new AppError(ErrorCode.PARSE, 'The UniFi console did not answer the status request with JSON.', {
+        cause: err, detail: `HTTP ${response.status}`,
+      });
+    }
+    const connections = payload && Array.isArray(payload.connections) ? payload.connections : [];
+    return new Map(connections
+      .filter((c) => c && typeof c.network_id === 'string')
+      .map((c) => [c.network_id, { status: String(c.status || 'UNKNOWN'), notes: Array.isArray(c.notes) ? c.notes.map(String) : [] }]));
+  }
+
+  /**
    * Replace one network configuration row. The gateway re-provisions on save.
    *
    * @param {string} id the row's `_id`

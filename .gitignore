@@ -14,6 +14,7 @@ resources/js/neutralino.d.ts
 # Local copies of the UniFi sync configuration and its credentials
 /pia-unifi-sync.json
 /pia-unifi-sync.env
+/unifi-console.pem
 *.env
 !*.env.example
 
