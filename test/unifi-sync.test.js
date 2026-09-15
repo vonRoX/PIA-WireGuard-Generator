@@ -198,7 +198,7 @@ describe('patching the row', () => {
  */
 function fileModeRow(overrides = {}) {
   return {
-    _id: '697dcf1d1a23727e9900e2e0', site_id: '5f0a0b0c0d0e0f1011121314', external_id: 'ext',
+    _id: '6a0b1c2d3e4f5a6b7c8d9e0f', site_id: '5f0a0b0c0d0e0f1011121314', external_id: 'ext',
     name: 'WireGuard PIA CZ', purpose: 'vpn-client', vpn_type: 'wireguard-client', enabled: true,
     interface_mtu: 1420, interface_mtu_enabled: false, mss_clamp: 'auto', mss_clamp_ipv6: 'auto', mss_clamp_mss: 1380,
     routing_table_id: 201, wireguard_id: 1,
