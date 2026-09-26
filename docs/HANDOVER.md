@@ -45,22 +45,31 @@ them into a chat.**
 - `tunnels[].network` — each VPN Client's name **exactly as the console shows it**
 - `tunnels[].region` — a PIA region id; `--list-regions` prints them (no credentials needed)
 
-`pia-unifi-sync.env` — copy from `examples\pia-unifi-sync.env.example`:
+Credentials — stored encrypted with DPAPI, not in a file in the repository. In your own terminal
+(it prompts, so it cannot run from a non-interactive session):
 
-- `PIA_USERNAME`, `PIA_PASSWORD`
-- `UNIFI_API_KEY` — UniFi console → Settings → Control Plane → Integrations
-- **Delete the `UNIFI_USERNAME` / `UNIFI_PASSWORD` lines.** An API key is the chosen path.
+```
+powershell -File scripts\pia-unifi-sync.ps1 -SetCredentials
+```
 
-Note: `--diagnose` and `--list-networks` require the PIA variables to be set even though they
-never use them (`scripts/pia-unifi-sync.mjs` reads credentials before branching). Set them; they
-are needed for the real run anyway.
+- PIA username and password
+- UniFi API key — UniFi console → Settings → Control Plane → Integrations. An API key, not a
+  username/password, is the chosen path.
+
+Note: `--diagnose` and `--list-networks` require the PIA credentials even though they never use
+them (`scripts/pia-unifi-sync.mjs` reads credentials before branching). They are needed for the
+real run anyway. (`pia-unifi-sync.env` with `scripts\pia-unifi-sync.cmd` still works, but leaves
+them in plaintext.)
 
 ### Then run
 
 ```
-node scripts\pia-unifi-sync.mjs --config pia-unifi-sync.json --list-networks
-node scripts\pia-unifi-sync.mjs --config pia-unifi-sync.json --diagnose --probe-write
+powershell -File scripts\pia-unifi-sync.ps1 --list-networks
+powershell -File scripts\pia-unifi-sync.ps1 --diagnose --probe-write
 ```
+
+Running `node scripts\pia-unifi-sync.mjs` directly reads credentials from the environment only;
+the launcher is what puts them there.
 
 `--list-networks` confirms the names match. `--diagnose --probe-write` answers everything else: it
 reads the certificate, performs the same GET the sync performs, describes each configured row
@@ -77,15 +86,18 @@ The report ends with **"What this means for the desktop app"**. The lines that d
 
 | Line | What it means |
 | --- | --- |
-| `set-cookie present   no` | the app can talk to this console through curl |
-| `set-cookie present   yes` | **stop** — an API-key-only curl client structurally cannot carry it |
-| Write probe `accepted` | the API key authorises a write, so Apply will not fail after PIA keys are spent |
-| Write probe `REFUSED` | read the message; a masked secret and an unauthorised write are different findings |
+| `set-cookie present   no` | nothing for a curl client to miss on the read |
+| `set-cookie present   yes` | not yet a verdict — the write probe decides whether it matters |
+| `without session cookie   accepted` | the API key alone authorises a write; a cookie, if set, is not needed |
+| `without session cookie   REFUSED` + `with session cookie   accepted` | **stop** — a write needs the session, which an API-key-only curl client cannot carry |
+| both `REFUSED`, or `skipped — ...no cookie or token` | the credential does not authorise a write; read the message |
+| `not written` | the row is not safe to round-trip (a hidden secret, a missing field, not a WireGuard VPN Client) — a finding, not a failure |
 | `CA:TRUE no` | expected. A factory console presents a self-signed leaf and it pins fine — see below |
 
-**Decision rule.** No cookie **and** every write probe accepted ⇒ the app port is buildable as
-specified; start Phase 2 below. A cookie ⇒ stop, say so plainly, and lay out the honest options
-rather than building around it.
+**Decision rule.** Every tunnel's `without session cookie` line `accepted` ⇒ the app port is
+buildable as specified; start Phase 2 below. A write accepted only with the session cookie ⇒ stop,
+say so plainly, and lay out the honest options rather than building around it (the leading one:
+curl `write-out` with `%{header_json}`, which needs curl 7.83+ and trips no guard).
 
 ### One more thing, before the first *real* write
 

@@ -17,7 +17,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AppError, ErrorCode } from '../resources/js/core/errors.js';
-import { isBase64Key } from '../resources/js/core/wireguard.js';
+import { isBase64Key, buildConfig } from '../resources/js/core/wireguard.js';
 import { curlExec } from '../scripts/unifi-sync/exec.mjs';
 import { nodeCrypto } from '../scripts/unifi-sync/crypto.mjs';
 import { UnifiClient, trustFromPem, csrfTokenFromJwt, parseSetCookie } from '../scripts/unifi-sync/unifi.mjs';
@@ -160,9 +160,8 @@ describe('patching the row', () => {
     assert.deepEqual(before, vpnClientRow(), 'the input row must not be mutated');
   });
 
-  test('a row created from an uploaded file gets the new file too', () => {
+  test('a manual-mode row that also keeps a file gets the new file too', () => {
     const before = vpnClientRow({
-      wireguard_client_mode: 'file',
       wireguard_client_configuration_file: '[Interface]\nPrivateKey = old\n',
       wireguard_client_configuration_filename: 'PIA-czech.conf',
     });
@@ -188,6 +187,98 @@ describe('patching the row', () => {
     assert.match(report, /x_wireguard_private_key \(redacted\)/);
     assert.doesNotMatch(report, new RegExp(KEYS.privateKey.replace(/\+/g, '\\+')));
     assert.match(report, /wireguard_client_peer_ip: "203\.0\.113\.9" → "193\.176\.86\.1"/);
+  });
+});
+
+/**
+ * A VPN Client created by uploading a `.conf`, in exactly the shape a UCG Ultra
+ * returned on 2026-09-14: the whole tunnel lives in the file, and the row has
+ * no key or peer fields at all. Both real tunnels were like this, and the
+ * manual-mode patch refused them — after spending a PIA registration each.
+ */
+function fileModeRow(overrides = {}) {
+  return {
+    _id: '6a0b1c2d3e4f5a6b7c8d9e0f', site_id: '5f0a0b0c0d0e0f1011121314', external_id: 'ext',
+    name: 'WireGuard PIA CZ', purpose: 'vpn-client', vpn_type: 'wireguard-client', enabled: true,
+    interface_mtu: 1420, interface_mtu_enabled: false, mss_clamp: 'auto', mss_clamp_ipv6: 'auto', mss_clamp_mss: 1380,
+    routing_table_id: 201, wireguard_id: 1,
+    ip_subnet: '10.20.30.40/32',
+    wireguard_client_mode: 'file',
+    wireguard_client_configuration_file: buildConfig({
+      keys: { privateKey: 'oZ0Ck1FQpjDMkFRZQ2rDBz8xWiXbxHgAqhP9uOnFvj4=' },
+      peer: { peerIp: '10.20.30.40', serverKey: 'pZ0Ck1FQpjDMkFRZQ2rDBz8xWiXbxHgAqhP9uOnFvj4=', serverIp: '203.0.113.9', serverPort: 1337 },
+      dns: '192.168.1.53', regionName: 'Czech Republic',
+    }),
+    wireguard_client_configuration_filename: 'PIA-czech.conf',
+    ...overrides,
+  };
+}
+
+describe('a VPN Client created from an uploaded file', () => {
+  const NEW_CONF = '# new\n[Interface]\nPrivateKey = new\n';
+
+  test('gets a new file and a matching address, and nothing a manual row carries', () => {
+    const before = fileModeRow();
+    const after = patchWireGuardClient(before, { keys: KEYS, peer: PEER, config: NEW_CONF, regionId: 'czech' });
+
+    assert.equal(after.wireguard_client_configuration_file, NEW_CONF);
+    assert.equal(after.ip_subnet, `${PEER.peerIp}/32`, 'the address must move with the file, or PIA drops the traffic');
+    for (const field of ['x_wireguard_private_key', 'wireguard_client_peer_public_key', 'wireguard_client_peer_ip', 'wireguard_client_peer_port', 'wireguard_public_key']) {
+      assert.ok(!(field in after), `${field} must not be added to a file-mode row`);
+    }
+    for (const field of Object.keys(before).filter((f) => !['ip_subnet', 'wireguard_client_configuration_file'].includes(f))) {
+      assert.deepEqual(after[field], before[field], `${field} must pass through unchanged`);
+    }
+  });
+
+  test('keeps the resolver its file already names, unless the configuration chooses one', async () => {
+    const regions = [{ id: 'czech', name: 'Czech Republic', servers: [{ ip: '185.216.35.1', cn: 'prague401' }] }];
+    const pia = { async addKey() { return PEER; } };
+    const run = (tunnel) => prepareTunnel({ pia, token: 't', regions, crypto: nodeCrypto, tunnel, entry: fileModeRow() });
+
+    const kept = await run({ network: 'WireGuard PIA CZ', region: 'czech', dns: '10.0.0.243', dnsExplicit: false });
+    assert.match(kept.next.wireguard_client_configuration_file, /^DNS = 192\.168\.1\.53$/m);
+
+    const chosen = await run({ network: 'WireGuard PIA CZ', region: 'czech', dns: '1.1.1.1', dnsExplicit: true });
+    assert.match(chosen.next.wireguard_client_configuration_file, /^DNS = 1\.1\.1\.1$/m);
+  });
+
+  test('is refused before any key is registered when its file is not the shape a refresh writes', async () => {
+    const base = fileModeRow().wireguard_client_configuration_file;
+    const cases = [
+      ['no file', { wireguard_client_configuration_file: '' }],
+      ['a masked key', { wireguard_client_configuration_file: base.replace(/^PrivateKey = .*$/m, `PrivateKey = ${'*'.repeat(44)}`) }],
+      ['a placeholder key', { wireguard_client_configuration_file: base.replace(/^PrivateKey = .*$/m, 'PrivateKey = xxxx') }],
+      ['two peers', { wireguard_client_configuration_file: `${base}\n[Peer]\nPublicKey = pZ0Ck1FQpjDMkFRZQ2rDBz8xWiXbxHgAqhP9uOnFvj4=\n` }],
+      ['a preshared key', { wireguard_client_configuration_file: base.replace('[Peer]', '[Peer]\nPresharedKey = pZ0Ck1FQpjDMkFRZQ2rDBz8xWiXbxHgAqhP9uOnFvj4=') }],
+    ];
+
+    for (const [label, overrides] of cases) {
+      let registered = 0;
+      const pia = { async addKey() { registered++; return PEER; } };
+      await assert.rejects(
+        prepareTunnel({
+          pia, token: 't', regions: [{ id: 'czech', name: 'CZ', servers: [{ ip: '185.216.35.1', cn: 'prague401' }] }],
+          crypto: nodeCrypto, tunnel: { network: 'x', region: 'czech', dns: '10.0.0.243' }, entry: fileModeRow(overrides),
+        }),
+        (err) => err instanceof AppError && err.code === ErrorCode.PROTOCOL,
+        label,
+      );
+      assert.equal(registered, 0, `${label}: nothing may be spent on a row that will be refused`);
+
+      const [inspected] = inspectTunnels({
+        config: loadSyncConfig({ unifi: { url: 'https://192.168.1.1' }, tunnels: [{ network: 'WireGuard PIA CZ', region: 'czech' }] }),
+        networks: [fileModeRow(overrides)],
+      });
+      assert.ok(inspected.error, `${label}: inspectTunnels reports it before the sync spends anything`);
+    }
+  });
+
+  test('a write whose echo differs from what was sent is reported, not called a success', async () => {
+    const next = patchWireGuardClient(fileModeRow(), { keys: KEYS, peer: PEER, config: NEW_CONF, regionId: 'czech' });
+    const unifi = { async updateNetwork(id, row) { return { ...row, ip_subnet: '10.20.30.40/32' }; } };
+
+    await assert.rejects(applyTunnel({ unifi, entry: fileModeRow(), next }), /stored something different/);
   });
 });
 
@@ -274,6 +365,21 @@ describe('a secret the console masked on read', () => {
       () => patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' }),
       (err) => err instanceof AppError && /would remove it/.test(err.message),
     );
+  });
+
+  test('a preshared key hidden by blanking or a placeholder is refused, not written back', () => {
+    for (const hidden of ['', 'xxxx', 'REDACTED', '<hidden>', 'A'.repeat(43), {}]) {
+      const entry = vpnClientRow({
+        wireguard_client_preshared_key_enabled: true,
+        wireguard_client_preshared_key: hidden,
+      });
+
+      assert.throws(
+        () => patchWireGuardClient(entry, { keys: KEYS, peer: PEER, config: 'x', regionId: 'czech' }),
+        (err) => err instanceof AppError && /would remove it/.test(err.message),
+        `${JSON.stringify(hidden)} must not be carried over as though it were a key`,
+      );
+    }
   });
 
   test('a masked private key is fine, because the refresh replaces it outright', () => {

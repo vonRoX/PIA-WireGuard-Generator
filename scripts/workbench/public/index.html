@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <meta name="referrer" content="no-referrer">
+  <title>UniFi Workbench</title>
+
+  <!--
+    The server sends the binding policy as a header (CONTRACT.md). This copy keeps the page
+    honest if it is ever opened some other way: nothing inline, nothing from another origin.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'">
+
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <svg class="brand__mark" viewBox="0 0 100 100" fill="none" aria-hidden="true"
+          xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="50" fill="url(#brandGradient)" />
+          <path d="M35 50L45 60L65 40" stroke="white" stroke-width="8" stroke-linecap="round"
+            stroke-linejoin="round" />
+          <defs>
+            <linearGradient id="brandGradient" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#2DD4BF" />
+              <stop offset="1" stop-color="#0EA5E9" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <span class="brand__name">UniFi Workbench</span>
+      </div>
+
+      <nav class="tabs" aria-label="Workbench">
+        <a class="tabs__link" href="#setup" data-view="setup">Setup</a>
+        <a class="tabs__link" href="#tunnels" data-view="tunnels">Tunnels</a>
+        <a class="tabs__link" href="#explorer" data-view="explorer">API explorer</a>
+      </nav>
+    </header>
+
+    <main class="app-main" id="main" tabindex="-1">
+
+      <!-- Before the first answer from the Workbench -->
+      <section id="view-boot" class="view" aria-labelledby="boot-title">
+        <h1 id="boot-title" class="sr-only">UniFi Workbench</h1>
+        <p class="boot" id="boot-status" role="status">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Connecting to the Workbench…</span>
+        </p>
+        <div id="boot-error" hidden></div>
+      </section>
+
+      <!-- ================================================================ Setup -->
+      <section id="view-setup" class="view" aria-labelledby="setup-title" hidden>
+        <div class="view__header">
+          <div>
+            <h1 id="setup-title" tabindex="-1">Connect your UniFi console</h1>
+            <p class="subtitle">Three steps. Nothing is changed on the console while you set up.</p>
+          </div>
+        </div>
+
+        <div class="alert alert--info">
+          <p class="alert__message">What you enter here stays on this computer.</p>
+          <p class="alert__hint">Credentials are encrypted for this Windows account (DPAPI) and are never shown
+            again, not even on this page.</p>
+        </div>
+
+        <ol class="stepper" aria-label="Setup steps">
+
+          <!-- Step 1: console address and certificate -->
+          <li class="step" id="step-console" data-state="current">
+            <div class="step__head">
+              <span class="step__badge" aria-hidden="true"><span class="step__number">1</span></span>
+              <div class="step__titles">
+                <h2 class="step__title" id="step-console-title" tabindex="-1">Console address</h2>
+                <p class="step__summary" id="step-console-summary"></p>
+              </div>
+              <span class="sr-only step__sr-state"></span>
+              <button type="button" class="btn btn--ghost btn--sm step__change" id="console-change"
+                aria-describedby="step-console-title">Change</button>
+            </div>
+
+            <div class="step__body">
+              <form id="console-form" class="stack" novalidate>
+                <div class="field">
+                  <label for="console-url">Console address</label>
+                  <input type="text" id="console-url" name="console-url" inputmode="url" autocomplete="off"
+                    autocapitalize="none" spellcheck="false" value="https://192.168.1.1"
+                    aria-describedby="console-url-hint console-url-error">
+                  <p class="hint" id="console-url-hint">The address you use to open the UniFi console in a browser on
+                    your home network.</p>
+                  <p class="field__error" id="console-url-error" hidden></p>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn--primary" id="console-check">
+                    <span class="btn__label">Check certificate</span>
+                    <span class="spinner" hidden aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="btn btn--ghost step__cancel" id="console-cancel">Cancel</button>
+                </div>
+              </form>
+
+              <div id="console-error" class="slot" hidden></div>
+
+              <div id="cert-panel" class="cert" hidden>
+                <h3 class="cert__title" id="cert-title" tabindex="-1">Certificate presented by <span
+                    id="cert-url" class="mono"></span></h3>
+
+                <div id="cert-compare" class="slot" hidden></div>
+
+                <dl class="facts">
+                  <div class="facts__row">
+                    <dt>Issued to</dt>
+                    <dd id="cert-subject"></dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>Issued by</dt>
+                    <dd id="cert-issuer"></dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>Self-signed</dt>
+                    <dd id="cert-selfsigned"></dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>Names</dt>
+                    <dd id="cert-names"></dd>
+                  </div>
+                  <div class="facts__row">
+                    <dt>Valid</dt>
+                    <dd id="cert-validity"></dd>
+                  </div>
+                </dl>
+
+                <div class="fingerprint">
+                  <p class="fingerprint__label" id="cert-fingerprint-label">SHA-256 fingerprint</p>
+                  <div class="fingerprint__grid" id="cert-fingerprint" role="group"
+                    aria-labelledby="cert-fingerprint-label"></div>
+                </div>
+
+                <div class="alert alert--warn">
+                  <p class="alert__message">Compare this with the certificate your browser shows at this address. Trust
+                    it only if they match.</p>
+                  <p class="alert__hint">In Chrome or Edge, open <span class="mono" id="cert-url-again"></span>, click
+                    <strong>Not secure</strong> in the address bar, then <strong>Certificate details</strong>. Look for
+                    the SHA-256 fingerprint. Upper or lower case does not matter.</p>
+                  <p class="alert__hint">A self-signed certificate is normal for a UniFi console. What matters is that
+                    this fingerprint is the same one your browser sees.</p>
+                </div>
+
+                <div class="actions">
+                  <button type="button" class="btn btn--primary" id="cert-trust">
+                    <span class="btn__label">Trust this certificate</span>
+                    <span class="spinner" hidden aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="btn btn--ghost" id="cert-reject">They do not match</button>
+                </div>
+                <div id="trust-error" class="slot" hidden></div>
+              </div>
+            </div>
+          </li>
+
+          <!-- Step 2: UniFi API key -->
+          <li class="step" id="step-key" data-state="upcoming">
+            <div class="step__head">
+              <span class="step__badge" aria-hidden="true"><span class="step__number">2</span></span>
+              <div class="step__titles">
+                <h2 class="step__title" id="step-key-title" tabindex="-1">UniFi API key</h2>
+                <p class="step__summary" id="step-key-summary"></p>
+              </div>
+              <span class="sr-only step__sr-state"></span>
+              <button type="button" class="btn btn--ghost btn--sm step__change" id="key-change"
+                aria-describedby="step-key-title">Change</button>
+            </div>
+
+            <div class="step__body">
+              <div class="explainer">
+                <p>Create the key on the console itself:</p>
+                <ol class="howto">
+                  <li>Open <span class="mono js-console-url">https://192.168.1.1</span> and sign in.</li>
+                  <li>Go to <strong>Settings → Control Plane → Integrations</strong>.</li>
+                  <li>Create an API key, copy it, and paste it below.</li>
+                </ol>
+              </div>
+
+              <div class="alert alert--warn">
+                <p class="alert__message">A key from unifi.ui.com (Site Manager) will not work.</p>
+                <p class="alert__hint">Site Manager keys are for Ubiquiti's cloud. The console refuses them, so the key
+                  has to be created on the console as described above.</p>
+              </div>
+
+              <form id="key-form" class="stack" novalidate>
+                <div class="field">
+                  <label for="unifi-key">API key</label>
+                  <div class="field__row">
+                    <input type="password" id="unifi-key" name="unifi-key" autocomplete="off" autocapitalize="none"
+                      spellcheck="false" aria-describedby="unifi-key-hint unifi-key-error">
+                    <button type="button" class="btn btn--ghost" id="unifi-key-reveal" aria-pressed="false"
+                      aria-controls="unifi-key">Show</button>
+                  </div>
+                  <p class="hint" id="unifi-key-hint">This key is a site-admin credential: it can read your tunnels'
+                    private keys. It is checked against the console, then encrypted for this Windows account (DPAPI)
+                    and never shown again.</p>
+                  <p class="field__error" id="unifi-key-error" hidden></p>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn--primary" id="key-save">
+                    <span class="btn__label">Check and store key</span>
+                    <span class="spinner" hidden aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="btn btn--ghost step__cancel" id="key-cancel">Cancel</button>
+                </div>
+              </form>
+
+              <div id="key-error" class="slot" hidden></div>
+            </div>
+          </li>
+
+          <!-- Step 3: PIA credentials -->
+          <li class="step" id="step-pia" data-state="upcoming">
+            <div class="step__head">
+              <span class="step__badge" aria-hidden="true"><span class="step__number">3</span></span>
+              <div class="step__titles">
+                <h2 class="step__title" id="step-pia-title" tabindex="-1">Private Internet Access login</h2>
+                <p class="step__summary" id="step-pia-summary"></p>
+              </div>
+              <span class="sr-only step__sr-state"></span>
+              <button type="button" class="btn btn--ghost btn--sm step__change" id="pia-change"
+                aria-describedby="step-pia-title">Change</button>
+            </div>
+
+            <div class="step__body">
+              <p class="step__intro">Used to get fresh WireGuard keys for your tunnels. It is not checked with PIA yet;
+                a typo shows up the first time keys are refreshed.</p>
+
+              <form id="pia-form" class="stack" novalidate>
+                <div class="field">
+                  <label for="pia-username">PIA username</label>
+                  <input type="text" id="pia-username" name="pia-username" placeholder="p1234567" autocomplete="off"
+                    autocapitalize="none" spellcheck="false" aria-describedby="pia-username-error">
+                  <p class="field__error" id="pia-username-error" hidden></p>
+                </div>
+                <div class="field">
+                  <label for="pia-password">PIA password</label>
+                  <input type="password" id="pia-password" name="pia-password" autocomplete="off" spellcheck="false"
+                    aria-describedby="pia-password-hint pia-password-error">
+                  <p class="hint" id="pia-password-hint">Encrypted for this Windows account (DPAPI) and never shown
+                    again.</p>
+                  <p class="field__error" id="pia-password-error" hidden></p>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn--primary" id="pia-save">
+                    <span class="btn__label">Store login</span>
+                    <span class="spinner" hidden aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="btn btn--ghost step__cancel" id="pia-cancel">Cancel</button>
+                </div>
+              </form>
+
+              <div id="pia-error" class="slot" hidden></div>
+            </div>
+          </li>
+        </ol>
+
+        <div id="setup-done" class="card done" hidden>
+          <h2 class="done__title" id="setup-done-title" tabindex="-1">Setup is complete</h2>
+          <p class="subtitle">The Workbench can now read your console. Nothing has been changed on it.</p>
+          <div class="actions">
+            <a class="btn btn--primary" href="#tunnels">View tunnels</a>
+            <a class="btn btn--ghost" href="#explorer">Open the API explorer</a>
+          </div>
+        </div>
+
+        <div id="forget-zone" class="forget" hidden>
+          <button type="button" class="btn btn--ghost btn--danger" id="forget-open" aria-expanded="false"
+            aria-controls="forget-confirm">Forget stored credentials</button>
+          <div id="forget-confirm" class="alert alert--warn forget__confirm" hidden>
+            <p class="alert__message" id="forget-question">Forget the stored UniFi API key and PIA login?</p>
+            <p class="alert__hint">They are removed from this computer. The trusted console certificate is kept. You
+              can enter them again at any time.</p>
+            <div class="actions">
+              <button type="button" class="btn btn--danger-solid" id="forget-confirm-btn">
+                <span class="btn__label">Forget them</span>
+                <span class="spinner" hidden aria-hidden="true"></span>
+              </button>
+              <button type="button" class="btn btn--ghost" id="forget-cancel">Keep them</button>
+            </div>
+          </div>
+          <div id="forget-error" class="slot" hidden></div>
+        </div>
+      </section>
+
+      <!-- ================================================================ Tunnels -->
+      <section id="view-tunnels" class="view view--wide" aria-labelledby="tunnels-title" hidden>
+        <div class="view__header">
+          <div>
+            <h1 id="tunnels-title" tabindex="-1">Tunnels</h1>
+            <p class="subtitle">VPN clients on your console. This list refreshes every 10 seconds while the page is
+              open.</p>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="btn btn--ghost btn--sm" id="tunnels-refresh">
+              <span class="btn__label">Refresh</span>
+              <span class="spinner" hidden aria-hidden="true"></span>
+            </button>
+            <button type="button" class="btn btn--sm" id="tunnels-refresh-keys" aria-disabled="true"
+              title="Coming next" aria-describedby="tunnels-refresh-keys-note">Refresh keys</button>
+          </div>
+        </div>
+        <p class="hint" id="tunnels-refresh-keys-note">Refreshing keys is coming next. This page only reads for now.</p>
+
+        <div id="tunnels-error" class="slot" hidden></div>
+
+        <div class="card card--flush table-wrap">
+          <table class="table">
+            <caption class="sr-only">VPN clients</caption>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Mode</th>
+                <th scope="col">Enabled</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="tunnels-body"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="tunnels-updated"></p>
+      </section>
+
+      <!-- ================================================================ Explorer -->
+      <section id="view-explorer" class="view view--wide" aria-labelledby="explorer-title" hidden>
+        <div class="view__header">
+          <div>
+            <h1 id="explorer-title" tabindex="-1">API explorer</h1>
+            <p class="subtitle">Read-only GET requests to your console, sent by the Workbench with the stored key.</p>
+          </div>
+        </div>
+
+        <div class="alert alert--info">
+          <p class="alert__message">Secrets are redacted by the engine before anything reaches this page.</p>
+          <p class="alert__hint">Keys, passwords, tokens and WireGuard private keys appear as <span
+              class="mono">&lt;redacted&gt;</span>.</p>
+        </div>
+
+        <form id="explore-form" class="stack" novalidate>
+          <div class="field">
+            <label for="explore-path">Path</label>
+            <div class="field__row">
+              <input type="text" id="explore-path" name="explore-path" class="mono" autocomplete="off"
+                autocapitalize="none" spellcheck="false" value="/proxy/network/integration/v1/info"
+                aria-describedby="explore-path-hint explore-path-error">
+              <button type="submit" class="btn btn--primary" id="explore-send">
+                <span class="btn__label">Send GET</span>
+                <span class="spinner" hidden aria-hidden="true"></span>
+              </button>
+            </div>
+            <p class="hint" id="explore-path-hint">Must start with <span class="mono">/proxy/network/</span>.</p>
+            <p class="field__error" id="explore-path-error" hidden></p>
+          </div>
+        </form>
+
+        <div class="chips" id="explore-presets" role="group" aria-label="Common paths"></div>
+
+        <div id="explore-error" class="slot" hidden></div>
+
+        <div id="explore-result" class="card card--flush" hidden>
+          <div class="result__toolbar">
+            <div class="result__meta">
+              <span class="badge" id="explore-status"></span>
+              <span class="mono result__path" id="explore-shown-path"></span>
+            </div>
+            <div class="result__buttons">
+              <button type="button" class="btn btn--ghost btn--sm" id="explore-expand">Expand all</button>
+              <button type="button" class="btn btn--ghost btn--sm" id="explore-collapse">Collapse all</button>
+              <button type="button" class="btn btn--ghost btn--sm" id="explore-raw" aria-pressed="false"
+                aria-controls="explore-tree explore-raw-view">Raw</button>
+              <button type="button" class="btn btn--ghost btn--sm" id="explore-copy">Copy JSON</button>
+            </div>
+          </div>
+          <div id="explore-tree" class="result__body" tabindex="-1" aria-label="Response body"></div>
+          <pre id="explore-raw-view" class="result__body raw" tabindex="0" aria-label="Response body, raw JSON"
+            hidden></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span>This page talks only to the Workbench on this computer.</span>
+    </footer>
+  </div>
+
+  <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+</body>
+
+</html>

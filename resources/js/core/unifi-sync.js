@@ -19,7 +19,7 @@
  */
 
 import { AppError, ErrorCode } from './errors.js';
-import { generateKeyPair, buildConfig, configFileName } from './wireguard.js';
+import { generateKeyPair, buildConfig, configFileName, isBase64Key, parseConfig } from './wireguard.js';
 import { findRegionById, pickServer } from './serverlist.js';
 import { resolveDns, CUSTOM_DNS, DEFAULT_DNS } from './dns.js';
 
@@ -60,6 +60,8 @@ function looksRedacted(value) {
  * @property {string} network name of the VPN Client in the UniFi console, exactly as shown
  * @property {string} region  PIA region id, e.g. `czech` or `us_east`
  * @property {string} dns     comma-separated resolvers for the generated configuration
+ * @property {boolean} [dnsExplicit] whether the configuration file chose `dns`, rather than the
+ *           default filling it in — a file-mode tunnel keeps its own resolver unless told otherwise
  */
 
 /**
@@ -108,6 +110,7 @@ export function loadSyncConfig(raw, resolvePath = (p) => p) {
       network: tunnel.network.trim(),
       region: tunnel.region.trim(),
       dns: tunnel.dns === undefined ? defaultDns : resolveDns(CUSTOM_DNS, String(tunnel.dns)),
+      dnsExplicit: tunnel.dns !== undefined || raw.dns !== undefined,
     };
   });
 
@@ -171,31 +174,23 @@ export function findWireGuardClient(networks, name) {
  * @returns {object}
  */
 export function patchWireGuardClient(entry, { keys, peer, config, regionId }) {
-  if (!entry || typeof entry !== 'object' || typeof entry._id !== 'string') {
-    throw new AppError(ErrorCode.PROTOCOL, 'The VPN Client row from UniFi has no id.');
-  }
+  assessTunnel(entry);
 
-  const missing = REQUIRED_FIELDS.filter((field) => !(field in entry));
-  if (missing.length > 0) {
-    throw new AppError(ErrorCode.PROTOCOL,
-      'The VPN Client row from UniFi does not carry the WireGuard fields this script knows how to update, ' +
-      'so it was left untouched. The Network application may have changed its schema.',
-      { detail: `missing: ${missing.join(', ')}; present: ${Object.keys(entry).sort().join(', ')}` });
-  }
-
-  // Everything not listed below is carried over from the row as it was read.
-  // That is only safe while the row holds real values: a secret the console
-  // masked on read would be written back as the mask, replacing the real one.
-  // The private key is exempt because it is replaced outright a few lines down.
-  const masked = [...SECRET_FIELDS]
-    .filter((field) => field !== 'x_wireguard_private_key' && looksRedacted(entry[field]));
-
-  if (masked.length > 0) {
-    throw new AppError(ErrorCode.PROTOCOL,
-      `The console returned ${masked.join(', ')} masked rather than in full, so this row cannot be written ` +
-      'back without replacing the real value with the mask. The tunnel was left untouched. Clear the ' +
-      'setting in the console, or configure the tunnel without it.',
-      { detail: `masked on read: ${masked.join(', ')}` });
+  // A row created by uploading a `.conf` is described by that file and nothing
+  // else: it has no key or peer fields, and adding them would leave two
+  // descriptions of one tunnel for the gateway to choose between. Replace the
+  // file, and the address the console derived from it — the two must move
+  // together, or the handshake succeeds with a source address PIA drops.
+  if (isFileMode(entry)) {
+    const next = {
+      ...entry,
+      ip_subnet: `${peer.peerIp}/32`,
+      wireguard_client_configuration_file: config,
+    };
+    if (!next.wireguard_client_configuration_filename) {
+      next.wireguard_client_configuration_filename = configFileName(regionId);
+    }
+    return next;
   }
 
   const next = {
@@ -211,20 +206,10 @@ export function patchWireGuardClient(entry, { keys, peer, config, regionId }) {
   // keep whatever is there consistent with the new private key.
   if ('wireguard_public_key' in entry) next.wireguard_public_key = keys.publicKey;
 
-  // A row that says it uses a preshared key but does not carry one is the same
-  // hazard wearing different clothes: writing it back drops the key.
-  if (entry.wireguard_client_preshared_key_enabled === true &&
-      typeof entry.wireguard_client_preshared_key !== 'string') {
-    throw new AppError(ErrorCode.PROTOCOL,
-      'This VPN Client uses a preshared key, but the console did not return one, so writing the row back ' +
-      'would remove it and the tunnel would stop connecting. The tunnel was left untouched.',
-      { detail: 'wireguard_client_preshared_key_enabled is true with no wireguard_client_preshared_key' });
-  }
-
   // Rows created by uploading a `.conf` keep the file alongside the parsed
   // fields. Replace it so the UI never shows a file that disagrees with the
   // tunnel it describes.
-  if ('wireguard_client_configuration_file' in entry || entry.wireguard_client_mode === 'file') {
+  if ('wireguard_client_configuration_file' in entry) {
     next.wireguard_client_configuration_file = config;
     if (!next.wireguard_client_configuration_filename) {
       next.wireguard_client_configuration_filename = configFileName(regionId);
@@ -232,6 +217,118 @@ export function patchWireGuardClient(entry, { keys, peer, config, regionId }) {
   }
 
   return next;
+}
+
+/** @param {object} entry */
+function isFileMode(entry) {
+  return Boolean(entry && entry.wireguard_client_mode === 'file');
+}
+
+/**
+ * Refuse, before anything is spent, a row this module cannot refresh safely.
+ *
+ * Every check that depends only on the row as read belongs here rather than
+ * after the PIA registration: a refusal discovered once a key has been issued
+ * has already cost a registration and achieved nothing.
+ *
+ * @param {object} entry a WireGuard VPN Client row as read
+ * @returns {{mode: 'file'|'manual', existingDns: string|null}}
+ * @throws {AppError}
+ */
+export function assessTunnel(entry) {
+  if (!entry || typeof entry !== 'object' || typeof entry._id !== 'string') {
+    throw new AppError(ErrorCode.PROTOCOL, 'The VPN Client row from UniFi has no id.');
+  }
+
+  if (isFileMode(entry)) return assessFileModeRow(entry);
+
+  const missing = REQUIRED_FIELDS.filter((field) => !(field in entry));
+  if (missing.length > 0) {
+    throw new AppError(ErrorCode.PROTOCOL,
+      'The VPN Client row from UniFi does not carry the WireGuard fields this script knows how to update, ' +
+      'so it was left untouched. The Network application may have changed its schema.',
+      { detail: `missing: ${missing.join(', ')}; present: ${Object.keys(entry).sort().join(', ')}` });
+  }
+
+  // Everything a refresh does not replace is carried over from the row as it
+  // was read. That is only safe while the row holds real values: a secret the
+  // console masked on read would be written back as the mask, replacing the
+  // real one. The private key is exempt because a refresh replaces it outright.
+  const masked = [...SECRET_FIELDS]
+    .filter((field) => field !== 'x_wireguard_private_key' && looksRedacted(entry[field]));
+
+  if (masked.length > 0) {
+    throw new AppError(ErrorCode.PROTOCOL,
+      `The console returned ${masked.join(', ')} masked rather than in full, so this row cannot be written ` +
+      'back without replacing the real value with the mask. The tunnel was left untouched. Clear the ' +
+      'setting in the console, or configure the tunnel without it.',
+      { detail: `masked on read: ${masked.join(', ')}` });
+  }
+
+  // A row that says it uses a preshared key but does not carry one is the same
+  // hazard wearing different clothes: writing it back drops the key. "Carry"
+  // means a real key — a console that hides the value by blanking it, or by
+  // substituting a placeholder the mask check above does not recognise, is
+  // caught here, because neither is shaped like a WireGuard key.
+  if (entry.wireguard_client_preshared_key_enabled === true &&
+      !isBase64Key(entry.wireguard_client_preshared_key)) {
+    throw new AppError(ErrorCode.PROTOCOL,
+      'This VPN Client uses a preshared key, but the console did not return one, so writing the row back ' +
+      'would remove it and the tunnel would stop connecting. The tunnel was left untouched.',
+      { detail: 'wireguard_client_preshared_key_enabled is true with no valid wireguard_client_preshared_key' });
+  }
+
+  return { mode: 'manual', existingDns: null };
+}
+
+/**
+ * A file-mode row is refreshed by replacing its file with one {@link buildConfig}
+ * renders, so it is only safe when the stored file is that same single-peer
+ * shape: anything a regenerated file would silently drop — a second peer, a
+ * preshared key, an unknown section — stops the refresh instead.
+ *
+ * @param {object} entry
+ * @returns {{mode: 'file', existingDns: string|null}}
+ */
+function assessFileModeRow(entry) {
+  const refuse = (reason) => new AppError(ErrorCode.PROTOCOL,
+    `This VPN Client was created from an uploaded configuration file, and ${reason}, so it was left untouched.`,
+    { detail: `file-mode row: ${reason}` });
+
+  const file = entry.wireguard_client_configuration_file;
+  if (typeof file !== 'string' || file.trim() === '') {
+    throw refuse('the console returned no configuration file for it');
+  }
+
+  const parsed = parseConfig(file);
+  if (!parsed.interface) throw refuse('its configuration file has no [Interface] section');
+
+  const privateKey = parsed.interface.privatekey;
+  if (looksRedacted(privateKey)) throw refuse('the console returned the key inside its configuration file masked');
+  if (!isBase64Key(privateKey)) throw refuse('the key inside its configuration file is not a WireGuard key');
+
+  if (parsed.peers.length !== 1) {
+    throw refuse(`its configuration file has ${parsed.peers.length} [Peer] sections where a refresh writes exactly one`);
+  }
+  if (parsed.peers[0].presharedkey !== undefined) {
+    throw refuse('its configuration file uses a preshared key, which a refresh would not carry over');
+  }
+  if (parsed.unknownSections.length > 0) {
+    throw refuse(`its configuration file has sections a refresh would drop (${parsed.unknownSections.join(', ')})`);
+  }
+
+  let existingDns = null;
+  if (parsed.interface.dns) {
+    try {
+      existingDns = resolveDns(CUSTOM_DNS, parsed.interface.dns);
+    } catch {
+      // A resolver given by name, or an IPv6 one, is not something the
+      // generator can write back; the configured DNS is used instead.
+      existingDns = null;
+    }
+  }
+
+  return { mode: 'file', existingDns };
 }
 
 /**
@@ -272,7 +369,9 @@ export function describeChanges(before, after) {
 export function inspectTunnels({ config, networks }) {
   return config.tunnels.map((tunnel) => {
     try {
-      return { tunnel, entry: findWireGuardClient(networks, tunnel.network) };
+      const entry = findWireGuardClient(networks, tunnel.network);
+      assessTunnel(entry);
+      return { tunnel, entry };
     } catch (err) {
       return { tunnel, error: asAppError(err) };
     }
@@ -311,13 +410,21 @@ export async function prepareTunnel({ pia, token, regions, crypto, tunnel, entry
       `PIA has no WireGuard region with id "${tunnel.region}". Run with --list-regions to see the ids.`);
   }
 
+  // Checked again here, not only in inspectTunnels, because this is the last
+  // moment a refusal costs nothing.
+  const { existingDns } = assessTunnel(entry);
+
+  // A file-mode tunnel already names the resolver its owner chose. Unless the
+  // configuration asks for a different one, a refresh keeps it.
+  const dns = !tunnel.dnsExplicit && existingDns ? existingDns : tunnel.dns;
+
   const server = pickServer(region, random);
   const keys = generateKeyPair(crypto);
 
   log(`${tunnel.network}: registering a new key with ${server.cn} (${region.name})…`);
   const peer = await pia.addKey({ token, publicKey: keys.publicKey, server });
 
-  const rendered = buildConfig({ keys, peer, dns: tunnel.dns, regionName: region.name });
+  const rendered = buildConfig({ keys, peer, dns, regionName: region.name });
   const next = patchWireGuardClient(entry, { keys, peer, config: rendered, regionId: region.id });
 
   return { server, region, peer, next, changes: describeChanges(entry, next) };
@@ -332,8 +439,24 @@ export async function prepareTunnel({ pia, token, regions, crypto, tunnel, entry
  * @param {object} input.next the row as prepared
  * @returns {Promise<object>} the row the console echoed back
  */
-export function applyTunnel({ unifi, entry, next }) {
-  return unifi.updateNetwork(entry._id, next);
+export async function applyTunnel({ unifi, entry, next }) {
+  const stored = await unifi.updateNetwork(entry._id, next);
+
+  // A 200 says the console accepted the request, not that it kept what was
+  // sent. Where the echo carries the fields that make the tunnel work, they
+  // must be the ones written — otherwise the new key is registered with PIA and
+  // the gateway is running something else.
+  if (stored && typeof stored === 'object') {
+    const differs = ['ip_subnet', 'wireguard_client_configuration_file', 'wireguard_client_peer_public_key', 'wireguard_client_peer_ip']
+      .filter((field) => field in stored && field in next && JSON.stringify(stored[field]) !== JSON.stringify(next[field]));
+    if (differs.length > 0) {
+      throw new AppError(ErrorCode.PROTOCOL,
+        'The console accepted the update but stored something different from what was sent; check the tunnel in UniFi.',
+        { detail: `differs in the echo: ${differs.join(', ')}` });
+    }
+  }
+
+  return stored;
 }
 
 /**

@@ -22,6 +22,7 @@ export {
   loadSyncConfig,
   findWireGuardClient,
   patchWireGuardClient,
+  assessTunnel,
   describeChanges,
   inspectTunnels,
   prepareTunnel,

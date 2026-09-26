@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "screenshots": "node scripts/screenshots.mjs",
     "unifi-sync": "node scripts/pia-unifi-sync.mjs",
+    "workbench": "node scripts/workbench/server.mjs",
     "lint": "eslint ."
   },
   "repository": {

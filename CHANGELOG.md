@@ -24,12 +24,47 @@ All notable changes to this project are documented here. The format follows
   session cookie was set, whether a CSRF token was derived. Header names only; never a value.
   `--probe-write` additionally writes one row back byte-identical, which is the only way to learn
   whether a credential authorises a write without changing anything.
+- `scripts/pia-unifi-sync.ps1`, a Windows launcher that keeps the credentials encrypted with DPAPI
+  in `%LOCALAPPDATA%` instead of a plaintext `pia-unifi-sync.env` in the repository.
+  `-SetCredentials` prompts for them without echoing, `-ForgetCredentials` deletes them, and every
+  other argument behaves as it does for the `.cmd`. Values are placed in the environment for the
+  run and removed afterwards; none appears on a command line.
 - `docs/HANDOVER.md`, a one-page brief for a session started on the machine that can actually
   reach the console: what is settled, the single run that answers what is not, how to read its
   verdict, and the constraints that hold whatever it says.
 
 ### Changed
 
+- **The sync refreshes file-mode VPN Clients** — the kind UniFi creates when a `.conf` is uploaded,
+  and the kind both tunnels on the first real console turned out to be. Such a row has no key or
+  peer fields; its whole tunnel lives in `wireguard_client_configuration_file`. A refresh now
+  replaces that file and `ip_subnet` together (the address must move with the key, or the handshake
+  succeeds and PIA drops the traffic), adds no manual-mode fields, and keeps the resolver the
+  existing file names unless the configuration sets `dns`. A file that is not the single-peer shape
+  a refresh writes — a second peer, a preshared key, an unknown section, a masked key — is refused.
+  Verified on a UCG Ultra: both tunnels went from `CONNECTING` to `CONNECTED`.
+- **Every check that depends only on the row runs before a PIA key is registered.** Previously a row
+  the sync would refuse was refused after `addKey`, spending a registration on nothing.
+- After a write, the console's echo is compared with what was sent, and a difference in the fields
+  that make the tunnel work is reported as a failure rather than a success.
+- `--only <name>` refreshes a single tunnel, and after writing the CLI watches
+  `v2/api/site/<site>/vpn/connections` until each tunnel reports connected (`--no-wait` to skip).
+  `scripts/pia-unifi-sync.ps1` treats a refresh narrowed with `--only` as a dry run unless `--apply`
+  is also given.
+- **`--probe-write` now tells a cookie the console sets from one a write needs.** It used to write
+  from the client that had just performed the read, which replays any cookie and CSRF token it was
+  handed — so an accepted write said nothing about a client that cannot see response headers, and
+  a cookie that was merely set was reported as blocking the desktop app. The first write now comes
+  from a client that has sent nothing; the session is tried only if that is refused on
+  authorisation and the read actually left one. Each tunnel is still written once when the bare
+  write succeeds.
+- **`--probe-write` resolves rows by type as well as name**, so a configuration naming the LAN by
+  mistake reports that instead of writing the LAN back to the gateway. It also refuses a row that
+  lacks the fields the sync needs, a private key that is not shaped like a WireGuard key, and any
+  `x_` field that came back masked or blank — not only a run of asterisks.
+- The sync refuses a row whose preshared key is in use but is not a real key. A console that hides
+  the value by blanking it, or with a placeholder like `xxxx`, previously passed the check and would
+  have had the blank written over the real key.
 - `--diagnose` now describes each configured VPN Client **field by field** — names always, values
   only for the few short flags that decide how a row must be written, and every secret as
   `present`, `absent` or `looks redacted`. Ubiquiti publishes no schema for `networkconf`, so
